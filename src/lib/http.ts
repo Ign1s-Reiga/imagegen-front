@@ -25,6 +25,8 @@ function describeHttpError(status: number, body: string, url: string): string {
       json?.error ??
       detail;
     if (typeof detail !== "string") detail = JSON.stringify(detail);
+    // e.g. RunPod answers 401 with {"error":{}}
+    if (detail === "{}" || detail === "[]") detail = "";
   } catch {
     // Not JSON; keep the raw text.
   }
