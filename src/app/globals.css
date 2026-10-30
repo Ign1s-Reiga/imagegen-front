@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+/*
+ * Chrome is strictly neutral grey so it never colour-casts the images being
+ * judged. Amber (a darkroom safelight) is reserved for "primary" and "running".
+ */
+@theme inline {
+  --color-surround: #202020;
+  --color-panel: #282828;
+  --color-field: #323232;
+  --color-raised: #3a3a3a;
+  --color-line: #3d3d3d;
+  --color-line-strong: #555555;
+  --color-fg: #e4e4e4;
+  --color-fg-dim: #a2a2a2;
+  --color-fg-faint: #767676;
+  --color-safelight: #f0a53c;
+  --color-safelight-strong: #ffb957;
+  --color-safelight-ink: #2a1a04;
+  --color-danger: #e8705f;
+  --color-ok: #78c08f;
+
+  --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), Georgia, serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-surround);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-safelight) 35%, transparent);
+}
+
+:focus-visible {
+  outline: 1.5px solid var(--color-safelight);
+  outline-offset: 1px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-raised) transparent;
+}
+
+input[type="number"]::-webkit-inner-spin-button {
+  opacity: 0.4;
+}
+
+input[type="range"] {
+  accent-color: var(--color-safelight);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
