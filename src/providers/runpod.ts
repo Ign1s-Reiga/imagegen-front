@@ -1,7 +1,8 @@
 import { base64ToBytes, bytesToBase64, extForMime, sniffImageMime } from "@/lib/bytes";
-import { http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
+import { HttpError, http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
 
 import { applyWorkflow, buildComfyWorkflow, workflowCapabilities, type UploadedRefs } from "./comfy-workflow";
+import { parseRunpodMyself } from "./credit";
 import type { Capabilities, ConnectionConfig, GeneratedImage, ProviderDefinition } from "./types";
 
 const BUILT_IN_CAPABILITIES: Capabilities = {
@@ -21,6 +22,9 @@ const BUILT_IN_CAPABILITIES: Capabilities = {
 };
 
 const DEFAULT_API = "https://api.runpod.ai/v2";
+/** Account data (balance, spend) is only on RunPod's GraphQL API. */
+const GRAPHQL_API = "https://api.runpod.io/graphql";
+const CREDIT_QUERY = "query ImageGenCredit { myself { clientBalance currentSpendPerHr spendLimit minBalance underBalance } }";
 
 const endpointUrl = (config: ConnectionConfig) => {
   if (!config.endpointId) throw new Error("Set the endpoint ID in the connection settings.");
@@ -92,6 +96,29 @@ export const runpod: ProviderDefinition = {
     const workers = health.workers ?? {};
     const ready = (workers.idle ?? 0) + (workers.running ?? 0);
     return `Endpoint reachable. ${ready} worker${ready === 1 ? "" : "s"} warm, ${health.jobs?.inQueue ?? 0} job${health.jobs?.inQueue === 1 ? "" : "s"} queued.`;
+  },
+
+  async getCredit(config, signal) {
+    if (!config.apiKey) return null;
+    try {
+      const json = await httpJson<unknown>(
+        GRAPHQL_API,
+        request(config, {
+          method: "POST",
+          body: JSON.stringify({ query: CREDIT_QUERY }),
+          headers: { "Content-Type": "application/json" },
+          signal,
+        }),
+      );
+      return parseRunpodMyself(json);
+    } catch (err) {
+      if (err instanceof HttpError && (err.status === 401 || err.status === 403)) {
+        throw new Error(
+          "RunPod refused this key for account data. If the key is limited to specific endpoints, create one with read access to the account.",
+        );
+      }
+      throw err;
+    }
   },
 
   async generate(params, config, ctx) {

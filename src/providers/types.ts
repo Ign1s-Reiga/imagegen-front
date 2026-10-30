@@ -147,6 +147,30 @@ export interface ProviderDefinition {
   /** Resolves with a short human-readable status, rejects with the problem. */
   testConnection: (config: ConnectionConfig, signal?: AbortSignal) => Promise<string>;
   generate: (params: GenerateParams, config: ConnectionConfig, ctx: RunContext) => Promise<GenerateResult>;
+  /**
+   * Account credit or spend. Resolves null when this connection is not set
+   * up to read it (e.g. no OpenAI admin key).
+   */
+  getCredit?: (config: ConnectionConfig, signal?: AbortSignal) => Promise<CreditInfo | null>;
+}
+
+export interface Money {
+  amount: number;
+  /** ISO 4217 code, upper case. */
+  currency: string;
+}
+
+export interface CreditInfo {
+  /** Prepaid balance left. */
+  balance?: Money;
+  /** Spend since the start of the current month (UTC). */
+  monthSpend?: Money;
+  /** Current burn rate, e.g. running RunPod workers. */
+  spendPerHour?: Money;
+  /** Maximum spend per hour the account allows. */
+  spendLimitPerHour?: Money;
+  /** The provider says the balance is low or exhausted. */
+  low?: boolean;
 }
 
 /** Saved connection. Secret fields are held in the keychain, not here. */

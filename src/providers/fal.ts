@@ -1,6 +1,7 @@
 import { parseDataUri, sniffImageMime, toDataUri } from "@/lib/bytes";
-import { http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
+import { HttpError, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
 
+import { parseFalBilling } from "./credit";
 import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type SchemaProps } from "./schema-input";
 import type { ConnectionConfig, GeneratedImage, ProviderDefinition } from "./types";
 
@@ -134,6 +135,18 @@ export const fal: ProviderDefinition = {
       if (status !== 404 && status !== 422 && status !== 400) throw err;
     }
     return "fal.ai accepted the API key.";
+  },
+
+  async getCredit(config, signal) {
+    if (!config.apiKey) return null;
+    try {
+      return parseFalBilling(await httpJson(`https://api.fal.ai/v1/account/billing?expand=credits`, request(config, { signal })));
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 403) {
+        throw new Error("This key cannot read billing. Use a key made with the Billing, Read-only or Full preset.");
+      }
+      throw err;
+    }
   },
 
   async generate(params, config, ctx) {

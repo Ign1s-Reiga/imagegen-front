@@ -5,13 +5,51 @@ import { useEffect, useState } from "react";
 
 import { getSecret } from "@/lib/secrets";
 import { midSentence } from "@/lib/text";
+import { describeCredit } from "@/providers/credit";
 import { PROVIDER_ORDER, provider } from "@/providers/registry";
-import type { Connection, ConnectionConfig, ProviderKind } from "@/providers/types";
+import type { Connection, ConnectionConfig, CreditInfo, ProviderKind } from "@/providers/types";
 import { useApp } from "@/store/app";
 
 import { Button, Field, TextInput, cx, useFieldId } from "../ui";
 
 type TestState = { status: "idle" } | { status: "running" } | { status: "ok" | "error"; message: string };
+
+type CreditCheck =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "done"; info: CreditInfo | null }
+  | { status: "error"; message: string };
+
+const describeError = (err: unknown) =>
+  err instanceof DOMException && err.name === "TimeoutError"
+    ? "No answer within 20 seconds."
+    : err instanceof Error
+      ? err.message
+      : String(err);
+
+function CreditSummary({ check, kind }: { check: CreditCheck; kind: ProviderKind }) {
+  if (check.status === "idle") return <p className="text-[13px] text-fg-faint">Not checked yet.</p>;
+  if (check.status === "loading") return <p className="text-[13px] text-fg-faint">Checking</p>;
+  if (check.status === "error") return <p className="text-[13px] leading-snug text-danger">{check.message}</p>;
+  if (!check.info) {
+    return (
+      <p className="text-[13px] text-fg-faint">
+        {kind === "openai" ? "Add an admin key to see this month's spending." : "Add the API key to see the balance."}
+      </p>
+    );
+  }
+  const { headline, details } = describeCredit(check.info);
+  return (
+    <div>
+      <p className={cx("text-[15px]", check.info.low ? "text-danger" : "text-fg")}>{headline}</p>
+      {details.map((line) => (
+        <p key={line} className="text-[13px] text-fg-dim">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 function uniqueName(base: string, taken: string[]) {
   if (!taken.includes(base)) return base;
@@ -69,6 +107,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
   const [test, setTest] = useState<TestState>({ status: "idle" });
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [credit, setCredit] = useState<CreditCheck>({ status: "idle" });
   const nameId = useFieldId("name");
 
   useEffect(() => {
@@ -78,11 +117,24 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
       def.fields
         .filter((f) => f.type === "secret")
         .map(async (f) => [f.key, (await getSecret(initial.id, f.key).catch(() => null)) ?? ""] as const),
-    ).then((entries) => !cancelled && setStored(Object.fromEntries(entries.filter(([, v]) => v))));
+    ).then(async (entries) => {
+      if (cancelled) return;
+      const saved = Object.fromEntries(entries.filter(([, v]) => v));
+      setStored(saved);
+      // Show the saved connection's credit right away.
+      if (!def.getCredit) return;
+      setCredit({ status: "loading" });
+      try {
+        const info = await def.getCredit({ ...initial.config, ...saved }, AbortSignal.timeout(20000));
+        if (!cancelled) setCredit({ status: "done", info });
+      } catch (err) {
+        if (!cancelled) setCredit({ status: "error", message: describeError(err) });
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [def, initial.id, isNew]);
+  }, [def, initial.id, initial.config, isNew]);
 
   const effectiveConfig = (): ConnectionConfig => {
     const merged: ConnectionConfig = { ...config };
@@ -96,14 +148,25 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
 
   const missing = def.fields.filter((f) => f.required && !effectiveConfig()[f.key]?.trim());
 
+  /** Reads credit with the values in the form, saved or not. */
+  const checkCredit = async () => {
+    if (!def.getCredit) return;
+    setCredit({ status: "loading" });
+    try {
+      setCredit({ status: "done", info: await def.getCredit(effectiveConfig(), AbortSignal.timeout(20000)) });
+    } catch (err) {
+      setCredit({ status: "error", message: describeError(err) });
+    }
+  };
+
   const runTest = async () => {
     setTest({ status: "running" });
     try {
       const message = await def.testConnection(effectiveConfig(), AbortSignal.timeout(20000));
       setTest({ status: "ok", message });
+      void checkCredit();
     } catch (err) {
-      const message = err instanceof DOMException && err.name === "TimeoutError" ? "No answer within 20 seconds." : err instanceof Error ? err.message : String(err);
-      setTest({ status: "error", message });
+      setTest({ status: "error", message: describeError(err) });
     }
   };
 
@@ -247,6 +310,26 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
         <p className="mt-3 text-[13px] text-fg-faint">
           Fill in {missing.map((f) => midSentence(f.label)).join(" and ")} to save.
         </p>
+      )}
+
+      {def.getCredit && (
+        <section aria-label="Credit" className="mt-8 flex items-start justify-between gap-4 border-t border-line pt-4">
+          <div className="min-w-0">
+            <h3 className="mb-1 text-[13px] font-medium text-fg-dim">
+              {def.kind === "openai" ? "Spending this month" : "Credit"}
+            </h3>
+            <CreditSummary check={credit} kind={def.kind} />
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="shrink-0 whitespace-nowrap"
+            onClick={() => void checkCredit()}
+            disabled={credit.status === "loading"}
+          >
+            Check credit
+          </Button>
+        </section>
       )}
     </form>
   );
