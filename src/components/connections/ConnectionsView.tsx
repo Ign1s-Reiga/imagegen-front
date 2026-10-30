@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { getSecret } from "@/lib/secrets";
+import { midSentence } from "@/lib/text";
 import { PROVIDER_ORDER, provider } from "@/providers/registry";
 import type { Connection, ConnectionConfig, ProviderKind } from "@/providers/types";
 import { useApp } from "@/store/app";
@@ -158,7 +159,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
                       className="text-[12.5px] text-fg-dim hover:text-danger"
                       onClick={() => setRemoved(new Set(removed).add(field.key))}
                     >
-                      Remove saved {field.label.toLowerCase()}
+                      Remove saved {midSentence(field.label)}
                     </button>
                   )
                 }
@@ -244,7 +245,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
       </div>
       {missing.length > 0 && (
         <p className="mt-3 text-[13px] text-fg-faint">
-          Fill in {missing.map((f) => f.label.toLowerCase()).join(" and ")} to save.
+          Fill in {missing.map((f) => midSentence(f.label)).join(" and ")} to save.
         </p>
       )}
     </form>

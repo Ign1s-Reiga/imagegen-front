@@ -15,6 +15,7 @@ import {
 } from "@/lib/gallery";
 import { isAbortError } from "@/lib/http";
 import { normalizeMask } from "@/lib/mask";
+import { midSentence } from "@/lib/text";
 import { deleteConnectionSecrets, deleteSecret, resolveConfig, setSecret } from "@/lib/secrets";
 import { loadSettings, saveSetting, type PersistedForm } from "@/lib/settings";
 import {
@@ -454,7 +455,7 @@ export const useApp = create<AppState>()((set, get) => {
         const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
         if (missing.length) {
           throw new Error(
-            `${connection.name} needs ${missing.map((f) => f.label.toLowerCase()).join(" and ")}. Add it in Connections.`,
+            `${connection.name} needs ${missing.map((f) => midSentence(f.label)).join(" and ")}. Add it in Connections.`,
           );
         }
         const result = await def.generate(params, config, {
