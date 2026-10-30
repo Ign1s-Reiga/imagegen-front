@@ -2,6 +2,7 @@ import { base64ToBytes, sniffImageMime } from "@/lib/bytes";
 import { httpImage, httpJson, trimSlash, type HttpOptions } from "@/lib/http";
 import { maskForOpenAI } from "@/lib/mask";
 
+import { monthStartUnix, sumOpenAICosts } from "./credit";
 import type { ConnectionConfig, GeneratedImage, GenerateParams, ProviderDefinition } from "./types";
 
 const DEFAULT_BASE = "https://api.openai.com/v1";
@@ -58,6 +59,13 @@ export const openai: ProviderDefinition = {
       type: "text",
       default: "gpt-image-2",
       placeholder: "gpt-image-2",
+    },
+    {
+      key: "adminKey",
+      label: "Admin key",
+      type: "secret",
+      placeholder: "sk-admin-...",
+      help: "Only for showing this month's spending; OpenAI has no balance API. Create one under Organization settings, Admin keys, with read access to usage.",
     },
     { key: "organization", label: "Organization ID", type: "text", placeholder: "Optional" },
     { key: "project", label: "Project ID", type: "text", placeholder: "Optional" },
@@ -153,6 +161,25 @@ export const openai: ProviderDefinition = {
     return models.length
       ? `Key works. ${models.length} image model${models.length === 1 ? "" : "s"} available.`
       : "Key works, but no image models are visible to this project.";
+  },
+
+  async getCredit(config, signal) {
+    if (!config.adminKey) return null;
+    type CostsPage = Parameters<typeof sumOpenAICosts>[0][number];
+    const pages: CostsPage[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 4; i++) {
+      const query = new URLSearchParams({ start_time: String(monthStartUnix()), bucket_width: "1d", limit: "31" });
+      if (cursor) query.set("page", cursor);
+      const page = await httpJson<CostsPage>(`${base(config)}/organization/costs?${query}`, {
+        headers: { Authorization: `Bearer ${config.adminKey}` },
+        signal,
+      });
+      pages.push(page);
+      if (!page.has_more || !page.next_page) break;
+      cursor = page.next_page;
+    }
+    return { monthSpend: sumOpenAICosts(pages) };
   },
 
   async generate(params, config, ctx) {

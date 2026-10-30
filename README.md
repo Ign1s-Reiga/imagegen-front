@@ -37,6 +37,19 @@ pnpm tauri build    # installers in src-tauri/target/release/bundle
 
 *Paint mask* opens a brush over the input image (B brush, E eraser, `[` `]` size, Ctrl Z undo). You can also drop a mask file: white or transparent pixels mark the area to change. Internally a mask is always white-means-change at the input image's size; the OpenAI adapter converts it to the transparent form OpenAI expects. ComfyUI and RunPod inpaint with `SetLatentNoiseMask`; A1111, fal.ai and Replicate get the mask as an image input.
 
+## Credit
+
+The top bar shows the active backend's credit, and each connection's settings page has a *Credit* section. It refreshes when you switch backends, a few seconds after each generation, every 5 minutes, and when you click it. What's available depends on the provider:
+
+| Backend | Shows | Needs |
+| --- | --- | --- |
+| fal.ai | Balance left | A key with billing read access (Billing, Read-only or Full preset) |
+| RunPod | Balance left, current spend per hour, spend limit | A key that can read account data (not one limited to specific endpoints) |
+| OpenAI | Spending this month (OpenAI has no balance API) | An optional *Admin key* in the connection, with read access to usage |
+| Replicate, ComfyUI, A1111 | Nothing | Replicate's API has no billing endpoint; the others run on your hardware |
+
+A balance under $2, or one RunPod reports as low, shows in red.
+
 ## ComfyUI workflows
 
 ComfyUI and RunPod connections can run your own workflow instead of the built-in one. In ComfyUI, use *Workflow > Export (API)*, then import the JSON with the file button next to *Workflow*. The app finds the prompt, negative prompt, seed, steps, guidance, sampler, scheduler, size, batch size, model, input image and mask on its own, and the editor lets you change that or expose any other input (a LoRA strength, a filename prefix) as a panel field. Fields get dropdowns from the server's `/object_info` when it has a list. Inputs you leave alone run exactly as exported.

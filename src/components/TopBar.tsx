@@ -7,6 +7,7 @@ import { isRoute } from "@/lib/routes";
 import { connectionLabel } from "@/providers/registry";
 import { activeConnection, useApp } from "@/store/app";
 
+import { CreditBadge } from "./CreditBadge";
 import { cx } from "./ui";
 
 const TABS = [
@@ -47,6 +48,7 @@ export function TopBar() {
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
+        {active && <CreditBadge key={active.id} connection={active} />}
         {connections.length > 0 ? (
           <>
             <label htmlFor="active-connection" className="text-[13px] text-fg-faint">

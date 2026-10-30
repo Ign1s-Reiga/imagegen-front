@@ -15,6 +15,7 @@ import {
 } from "@/lib/gallery";
 import { isAbortError } from "@/lib/http";
 import { normalizeMask } from "@/lib/mask";
+import { midSentence } from "@/lib/text";
 import { deleteConnectionSecrets, deleteSecret, resolveConfig, setSecret } from "@/lib/secrets";
 import { loadSettings, saveSetting, type PersistedForm } from "@/lib/settings";
 import {
@@ -28,6 +29,7 @@ import { provider } from "@/providers/registry";
 import type {
   Capabilities,
   Connection,
+  CreditInfo,
   GenerateParams,
   InputImage,
   Mode,
@@ -48,6 +50,17 @@ export interface Job {
   error?: string;
   controller?: AbortController;
 }
+
+export interface CreditState {
+  /** null: this connection is not set up to report credit. */
+  info?: CreditInfo | null;
+  error?: string;
+  loading?: boolean;
+  updatedAt?: number;
+}
+
+/** Credit is re-read at most this often unless forced. */
+const CREDIT_TTL_MS = 60_000;
 
 interface Choices {
   models?: ModelChoice[];
@@ -93,6 +106,7 @@ interface AppState {
   recent: GenerationRecord[];
   selection: { generationId: string; imageIndex: number } | null;
   choices: Record<string, Choices>;
+  credits: Record<string, CreditState>;
   /** Bumped whenever the gallery contents change. */
   galleryVersion: number;
   notice: string | null;
@@ -103,6 +117,7 @@ interface AppState {
   saveConnection(connection: Connection, secrets: Record<string, string | null>): Promise<void>;
   removeConnection(id: string): Promise<void>;
   loadChoices(connectionId: string): Promise<void>;
+  loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
   importWorkflow(file: File): Promise<SavedWorkflow | null>;
   saveWorkflow(workflow: SavedWorkflow): Promise<void>;
   deleteWorkflow(id: string): Promise<void>;
@@ -246,6 +261,7 @@ export const useApp = create<AppState>()((set, get) => {
     recent: [],
     selection: null,
     choices: {},
+    credits: {},
     galleryVersion: 0,
     notice: null,
 
@@ -266,7 +282,10 @@ export const useApp = create<AppState>()((set, get) => {
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,
       });
-      if (active) void get().loadChoices(active.id);
+      if (active) {
+        void get().loadChoices(active.id);
+        void get().loadCredit(active.id);
+      }
     },
 
     setForm(patch) {
@@ -281,6 +300,7 @@ export const useApp = create<AppState>()((set, get) => {
       set({ activeConnectionId: id, form: formFor(connection, forms, get().form) });
       void saveSetting("activeConnectionId", id);
       if (!get().choices[id]?.models) void get().loadChoices(id);
+      void get().loadCredit(id);
     },
 
     async saveConnection(connection, secrets) {
@@ -292,8 +312,13 @@ export const useApp = create<AppState>()((set, get) => {
       const connections = existing.some((c) => c.id === connection.id)
         ? existing.map((c) => (c.id === connection.id ? connection : c))
         : [...existing, connection];
-      set({ connections, choices: { ...get().choices, [connection.id]: {} } });
+      set({
+        connections,
+        choices: { ...get().choices, [connection.id]: {} },
+        credits: { ...get().credits, [connection.id]: {} },
+      });
       await saveSetting("connections", connections);
+      void get().loadCredit(connection.id, { force: true });
       if (!get().activeConnectionId || existing.length === 0) get().selectConnection(connection.id);
       else if (get().activeConnectionId === connection.id) void get().loadChoices(connection.id);
     },
@@ -305,7 +330,9 @@ export const useApp = create<AppState>()((set, get) => {
       const connections = get().connections.filter((c) => c.id !== id);
       const forms = { ...get().forms };
       delete forms[id];
-      set({ connections, forms });
+      const credits = { ...get().credits };
+      delete credits[id];
+      set({ connections, forms, credits });
       await saveSetting("connections", connections);
       await saveSetting("forms", forms);
       if (get().activeConnectionId === id) {
@@ -344,6 +371,25 @@ export const useApp = create<AppState>()((set, get) => {
           loading: false,
           error: errorMessage(err),
         });
+      }
+    },
+
+    async loadCredit(connectionId, { force = false } = {}) {
+      const connection = get().connections.find((c) => c.id === connectionId);
+      const def = connection && provider(connection.kind);
+      if (!connection || !def?.getCredit) return;
+      const current = get().credits[connectionId];
+      if (current?.loading) return;
+      if (!force && current?.updatedAt && Date.now() - current.updatedAt < CREDIT_TTL_MS) return;
+      const update = (patch: CreditState) =>
+        set((s) => ({ credits: { ...s.credits, [connectionId]: { ...s.credits[connectionId], ...patch } } }));
+      update({ loading: true });
+      try {
+        const info = await def.getCredit(await resolveConfig(connection), AbortSignal.timeout(20_000));
+        update({ info, error: undefined, loading: false, updatedAt: Date.now() });
+      } catch (err) {
+        const timedOut = err instanceof DOMException && err.name === "TimeoutError";
+        update({ error: timedOut ? "No answer within 20 seconds." : errorMessage(err), loading: false, updatedAt: Date.now() });
       }
     },
 
@@ -454,7 +500,7 @@ export const useApp = create<AppState>()((set, get) => {
         const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
         if (missing.length) {
           throw new Error(
-            `${connection.name} needs ${missing.map((f) => f.label.toLowerCase()).join(" and ")}. Add it in Connections.`,
+            `${connection.name} needs ${missing.map((f) => midSentence(f.label)).join(" and ")}. Add it in Connections.`,
           );
         }
         const result = await def.generate(params, config, {
@@ -498,6 +544,8 @@ export const useApp = create<AppState>()((set, get) => {
           selection: { generationId: record.id, imageIndex: 0 },
           galleryVersion: s.galleryVersion + 1,
         }));
+        // Providers book the charge shortly after the job finishes.
+        setTimeout(() => void get().loadCredit(connection.id, { force: true }), 2500);
       } catch (err) {
         if (controller.signal.aborted || isAbortError(err)) {
           set((s) => (s.job?.controller === controller ? { job: null } : {}));
