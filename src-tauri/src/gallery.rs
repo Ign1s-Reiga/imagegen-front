@@ -70,7 +70,9 @@ impl Gallery {
     }
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn path_of(&self, file_name: &str) -> PathBuf {
@@ -206,7 +208,10 @@ pub async fn gallery_commit(generation: NewGeneration, gallery: State<'_, Galler
         // File names come back from gallery_write_image; refuse anything that
         // could point outside the images directory.
         if image.file_name.contains(['/', '\\']) || image.file_name.contains("..") {
-            return Err(Error::msg(format!("invalid file name: {}", image.file_name)));
+            return Err(Error::msg(format!(
+                "invalid file name: {}",
+                image.file_name
+            )));
         }
     }
 
@@ -275,9 +280,18 @@ pub async fn gallery_list(
          FROM images WHERE generation_id = ?1 ORDER BY idx",
     )?;
 
-    let escaped = search.map(|s| s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+    let escaped = search.map(|s| {
+        s.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    });
     let rows = gen_stmt.query_map(
-        params![escaped, query.favorites_only as i64, limit, query.offset.max(0)],
+        params![
+            escaped,
+            query.favorites_only as i64,
+            limit,
+            query.offset.max(0)
+        ],
         |row| {
             let params_json: String = row.get(8)?;
             Ok(GenerationRecord {

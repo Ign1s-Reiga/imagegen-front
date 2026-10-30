@@ -27,6 +27,17 @@ pnpm tauri build    # installers in src-tauri/target/release/bundle
 
 `pnpm dev` alone serves the UI in a browser, but it needs the Tauri runtime and shows an error there.
 
+Checks (the same ones CI runs on every push to `main` and every pull request):
+
+```sh
+pnpm lint
+pnpm typecheck      # generates Next's route types, then runs tsc
+pnpm test           # unit tests with Node's test runner (src/**/*.test.ts)
+cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+```
+
+CI runs the Rust checks on Linux and Windows.
+
 ## Where things are stored
 
 - **API keys** go to the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service on Linux) under `io.imagegen.desktop`. They are never written to disk by the app.
