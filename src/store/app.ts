@@ -31,10 +31,12 @@ import type {
   Connection,
   CreditInfo,
   GenerateParams,
+  GeneratedImage,
   InputImage,
   Mode,
   ModelChoice,
   Progress,
+  RunContext,
 } from "@/providers/types";
 
 export interface FormState extends PersistedForm {
@@ -61,6 +63,24 @@ export interface CreditState {
 
 /** Credit is re-read at most this often unless forced. */
 const CREDIT_TTL_MS = 60_000;
+
+/**
+ * What a caller decides for one generation. Everything else (model, steps,
+ * sampler, provider options, workflow) comes from the active connection's form.
+ */
+export interface GenerationRequest {
+  mode: Mode;
+  prompt: string;
+  negativePrompt: string;
+  width: number;
+  height: number;
+  count: number;
+  /** Null picks a random seed. */
+  seed: number | null;
+  strength: number;
+  initImage: InputImage | null;
+  mask: InputImage | null;
+}
 
 interface Choices {
   models?: ModelChoice[];
@@ -122,6 +142,11 @@ interface AppState {
   saveWorkflow(workflow: SavedWorkflow): Promise<void>;
   deleteWorkflow(id: string): Promise<void>;
   selectWorkflow(id: string | null): void;
+  /** Runs one generation on the active connection and saves the result to the gallery. */
+  runGeneration(
+    request: GenerationRequest,
+    ctx: RunContext,
+  ): Promise<{ record: GenerationRecord; images: GeneratedImage[] }>;
   generate(): Promise<void>;
   cancel(): void;
   dismissJob(): void;
@@ -451,6 +476,80 @@ export const useApp = create<AppState>()((set, get) => {
       if (connection) void loadWorkflowChoices(connection, workflow);
     },
 
+    async runGeneration(request, ctx) {
+      const state = get();
+      const connection = activeConnection(state);
+      if (!connection) throw new Error("Add a connection first.");
+      const def = provider(connection.kind);
+      const workflow = activeWorkflow(state);
+      const caps = def.capabilities(connection.config, workflow);
+      const { form } = state;
+      const startedAt = Date.now();
+
+      const params: GenerateParams = {
+        mode: request.mode,
+        prompt: request.prompt.trim(),
+        negativePrompt: caps.negativePrompt ? request.negativePrompt.trim() : "",
+        model: caps.model ? form.model.trim() : "",
+        width: roundTo(request.width, caps.sizeStep),
+        height: roundTo(request.height, caps.sizeStep),
+        count: Math.min(Math.max(1, request.count), caps.maxCount),
+        seed: caps.seed && request.seed !== null ? request.seed : randomSeed(),
+        steps: form.steps,
+        cfg: form.cfg,
+        sampler: form.sampler,
+        scheduler: form.scheduler,
+        strength: request.strength,
+        initImage: request.mode === "img2img" ? request.initImage : null,
+        mask: request.mode === "img2img" && caps.mask ? request.mask : null,
+        options: form.options,
+        workflow,
+      };
+
+      const config = await resolveConfig(connection);
+      const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
+      if (missing.length) {
+        throw new Error(
+          `${connection.name} needs ${missing.map((f) => midSentence(f.label)).join(" and ")}. Add it in Connections.`,
+        );
+      }
+      const result = await def.generate(params, config, ctx);
+      if (ctx.signal.aborted) throw new DOMException("canceled", "AbortError");
+
+      const record = await saveGeneration(
+        {
+          id: crypto.randomUUID(),
+          createdAt: startedAt,
+          provider: connection.kind,
+          connectionName: connection.name,
+          model: result.model || params.model || (workflow ? workflow.name : def.defaultModel(config)) || null,
+          mode: params.mode,
+          prompt: params.prompt,
+          negativePrompt: params.negativePrompt || null,
+          params: {
+            width: params.width,
+            height: params.height,
+            count: params.count,
+            seed: params.seed,
+            steps: params.steps,
+            cfg: params.cfg,
+            sampler: params.sampler,
+            scheduler: params.scheduler,
+            strength: params.strength,
+            options: params.options,
+            connectionId: connection.id,
+            info: { ...result.info, ...(workflow ? { workflow: workflow.name } : {}) },
+          },
+          durationMs: Date.now() - startedAt,
+        },
+        result.images,
+      );
+      set((s) => ({ recent: [record, ...s.recent], galleryVersion: s.galleryVersion + 1 }));
+      // Providers book the charge shortly after the job finishes.
+      setTimeout(() => void get().loadCredit(connection.id, { force: true }), 2500);
+      return { record, images: result.images };
+    },
+
     async generate() {
       const state = get();
       if (state.job?.status === "running") return;
@@ -468,27 +567,6 @@ export const useApp = create<AppState>()((set, get) => {
       const mode = effectiveMode(form, caps);
       if (mode === "img2img" && !form.initImage) return fail("Add an input image, or switch to text to image.");
 
-      const seed = caps.seed && form.seed !== null ? form.seed : randomSeed();
-      const params: GenerateParams = {
-        mode,
-        prompt: form.prompt.trim(),
-        negativePrompt: caps.negativePrompt ? form.negativePrompt.trim() : "",
-        model: caps.model ? form.model.trim() : "",
-        width: roundTo(form.width, caps.sizeStep),
-        height: roundTo(form.height, caps.sizeStep),
-        count: Math.min(Math.max(1, form.count), caps.maxCount),
-        seed,
-        steps: form.steps,
-        cfg: form.cfg,
-        sampler: form.sampler,
-        scheduler: form.scheduler,
-        strength: form.strength,
-        initImage: mode === "img2img" ? form.initImage : null,
-        mask: mode === "img2img" && caps.mask ? form.mask : null,
-        options: form.options,
-        workflow,
-      };
-
       const controller = new AbortController();
       const startedAt = Date.now();
       set({
@@ -496,56 +574,26 @@ export const useApp = create<AppState>()((set, get) => {
       });
 
       try {
-        const config = await resolveConfig(connection);
-        const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
-        if (missing.length) {
-          throw new Error(
-            `${connection.name} needs ${missing.map((f) => midSentence(f.label)).join(" and ")}. Add it in Connections.`,
-          );
-        }
-        const result = await def.generate(params, config, {
-          signal: controller.signal,
-          onProgress: (progress) =>
-            set((s) => (s.job?.controller === controller ? { job: { ...s.job, progress } } : {})),
-        });
-        if (controller.signal.aborted) throw new DOMException("canceled", "AbortError");
-
-        const record = await saveGeneration(
+        const { record } = await get().runGeneration(
           {
-            id: crypto.randomUUID(),
-            createdAt: startedAt,
-            provider: connection.kind,
-            connectionName: connection.name,
-            model: result.model || params.model || (workflow ? workflow.name : def.defaultModel(config)) || null,
             mode,
-            prompt: params.prompt,
-            negativePrompt: params.negativePrompt || null,
-            params: {
-              width: params.width,
-              height: params.height,
-              count: params.count,
-              seed: params.seed,
-              steps: params.steps,
-              cfg: params.cfg,
-              sampler: params.sampler,
-              scheduler: params.scheduler,
-              strength: params.strength,
-              options: params.options,
-              connectionId: connection.id,
-              info: { ...result.info, ...(workflow ? { workflow: workflow.name } : {}) },
-            },
-            durationMs: Date.now() - startedAt,
+            prompt: form.prompt,
+            negativePrompt: form.negativePrompt,
+            width: form.width,
+            height: form.height,
+            count: form.count,
+            seed: form.seed,
+            strength: form.strength,
+            initImage: form.initImage,
+            mask: form.mask,
           },
-          result.images,
+          {
+            signal: controller.signal,
+            onProgress: (progress) =>
+              set((s) => (s.job?.controller === controller ? { job: { ...s.job, progress } } : {})),
+          },
         );
-        set((s) => ({
-          job: null,
-          recent: [record, ...s.recent],
-          selection: { generationId: record.id, imageIndex: 0 },
-          galleryVersion: s.galleryVersion + 1,
-        }));
-        // Providers book the charge shortly after the job finishes.
-        setTimeout(() => void get().loadCredit(connection.id, { force: true }), 2500);
+        set({ job: null, selection: { generationId: record.id, imageIndex: 0 } });
       } catch (err) {
         if (controller.signal.aborted || isAbortError(err)) {
           set((s) => (s.job?.controller === controller ? { job: null } : {}));

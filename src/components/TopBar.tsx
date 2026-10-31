@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { isRoute } from "@/lib/routes";
+import { usePixel } from "@/pixel/store";
 import { connectionLabel } from "@/providers/registry";
 import { activeConnection, useApp } from "@/store/app";
 
@@ -12,6 +13,7 @@ import { cx } from "./ui";
 
 const TABS = [
   { href: "/", label: "Generate" },
+  { href: "/pixel", label: "Pixel" },
   { href: "/gallery", label: "Gallery" },
   { href: "/connections", label: "Connections" },
 ] as const;
@@ -21,7 +23,10 @@ export function TopBar() {
   const connections = useApp((s) => s.connections);
   const active = useApp(activeConnection);
   const selectConnection = useApp((s) => s.selectConnection);
-  const running = useApp((s) => s.job?.status === "running");
+  const generating = useApp((s) => s.job?.status === "running");
+  const pixelRunning = usePixel((s) => s.aiJob !== null);
+  // Switching backends mid-run would mix up which connection the result belongs to.
+  const running = generating || pixelRunning;
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-6 border-b border-line bg-panel pl-4 pr-3">

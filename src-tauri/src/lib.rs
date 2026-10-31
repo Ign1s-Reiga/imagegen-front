@@ -1,4 +1,5 @@
 mod error;
+mod files;
 mod gallery;
 mod secrets;
 
@@ -36,6 +37,7 @@ pub fn run() {
             gallery::gallery_read_image,
             gallery::gallery_export_image,
             gallery::gallery_dir,
+            files::save_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -11,9 +11,9 @@ A desktop app for generating images with several backends from one place:
 | Replicate | Any image model; inputs are mapped from the model's schema |
 | A1111 / Forge / SD.Next | Stable Diffusion WebUI started with `--api` |
 
-It does text to image, image to image with a painted or uploaded mask, runs your own ComfyUI workflows, and keeps a local gallery of every result with its prompt and settings.
+It does text to image, image to image with a painted or uploaded mask, runs your own ComfyUI workflows, and keeps a local gallery of every result with its prompt and settings. A pixel editor turns the same backends into a sprite tool.
 
-Built with Tauri 2 (Rust) and Next.js 16 (App Router as a static export, React 19, Tailwind 4). The views are real routes (`/`, `/gallery`, `/connections`) that Tauri serves from the exported HTML.
+Built with Tauri 2 (Rust) and Next.js 16 (App Router as a static export, React 19, Tailwind 4). The views are real routes (`/`, `/pixel`, `/gallery`, `/connections`) that Tauri serves from the exported HTML.
 
 ## Running it
 
@@ -61,6 +61,22 @@ The top bar shows the active backend's credit, and each connection's settings pa
 
 A balance under $2, or one RunPod reports as low, shows in red.
 
+## Pixel editor
+
+*Pixel* is a sprite editor (up to 256×256) with layers, animation frames and a palette, plus three AI tools that use the active backend with the model and settings from *Generate*:
+
+| Tool | What it does |
+| --- | --- |
+| Create | Generates a sprite from a description |
+| Edit area | Redraws the selected area of the current layer. Backends without masks redraw the whole sprite and keep only the area |
+| Variations | Generates new versions of the current frame, e.g. other poses for animation frames |
+
+Models draw "pixel art" with soft, uneven fake pixels, so every result is snapped back to the sprite: the image is cropped to the sprite's shape, and each sprite pixel takes the palette colour most of the pixels near its centre are closest to (in OKLab). The palette is the sprite's own, or a new one picked from the result. Sprites are sent to the model flattened onto a colour that is far from the palette, and that colour comes back as transparency; a background that reaches the edges can be cleared too. Results can be added as a new layer or frame, or replace the current layer, and the raw images also go to the gallery.
+
+Tools: pencil (B), eraser (E), fill (G), pick colour (I, or Alt click), line (L), rectangle (U), select (M), move (V), mirror left/right and top/bottom. Right click draws with the secondary colour. Ctrl Z / Ctrl Shift Z undo and redo, Ctrl A / Esc select all or nothing, Delete clears the selection, `[` `]` brush size, X swaps colours, `,` `.` step frames, Enter plays, Space drag or middle drag pans, the wheel zooms, 0 fits. Ctrl Enter runs the AI tool, Ctrl S saves.
+
+The sprite is kept between sessions automatically (`pixel.json` in the app data folder). *Save* writes a `.pixel` project file (JSON with every layer and frame); *Open* reads those or a PNG/GIF/WebP up to 256×256; *Export* writes the current frame or a sprite sheet as PNG at 1× to 16×. The save dialog runs in Rust, so the webview never picks the path it writes to.
+
 ## ComfyUI workflows
 
 ComfyUI and RunPod connections can run your own workflow instead of the built-in one. In ComfyUI, use *Workflow > Export (API)*, then import the JSON with the file button next to *Workflow*. The app finds the prompt, negative prompt, seed, steps, guidance, sampler, scheduler, size, batch size, model, input image and mask on its own, and the editor lets you change that or expose any other input (a LoRA strength, a filename prefix) as a panel field. Fields get dropdowns from the server's `/object_info` when it has a list. Inputs you leave alone run exactly as exported.
@@ -81,8 +97,9 @@ The webview runs under a Content Security Policy (`src-tauri/tauri.conf.json`): 
 
 ```
 src/
-  app/                  Next.js routes: / (generate), /gallery, /connections
-  components/           UI: generate/, gallery/, connections/, shared ui.tsx
+  app/                  Next.js routes: / (generate), /pixel, /gallery, /connections
+  components/           UI: generate/, pixel/, gallery/, connections/, shared ui.tsx
+  pixel/                Sprite model, drawing, palettes, snapping AI output to the grid, AI tools
   providers/            One file per backend + shared helpers
     types.ts            ProviderDefinition, GenerateParams, ...
     registry.ts         The list of backends
@@ -93,6 +110,7 @@ src/
 src-tauri/
   src/gallery.rs        Image files + SQLite index
   src/secrets.rs        OS keychain access
+  src/files.rs          Save dialog + file write for sprite exports
   capabilities/         Webview permissions (HTTP scope, opener, ...)
 ```
 
