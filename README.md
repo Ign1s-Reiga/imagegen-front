@@ -13,7 +13,7 @@ A desktop app for generating images with several backends from one place:
 | A1111 / Forge / SD.Next | Stable Diffusion WebUI started with `--api` |
 | Claude | The Claude API, for the prompt helper and the pixel assistant (Claude does not make images) |
 
-It does text to image, image to image with a painted or uploaded mask, runs your own ComfyUI workflows, and keeps a local gallery of every result with its prompt and settings. A pixel editor turns the same backends into a sprite tool. With a Claude or OpenRouter connection, a prompt helper rewrites prompts for the model you use, and a pixel assistant draws and edits sprites from a chat.
+It does text to image (with reference images attached to the prompt, like a chat message), image to image with a painted or uploaded mask, runs your own ComfyUI workflows, and keeps a local gallery of every result with its prompt and settings. A pixel editor turns the same backends into a sprite tool. With a Claude or OpenRouter connection, a prompt helper rewrites prompts for the model you use, and a pixel assistant draws and edits sprites from a chat.
 
 Built with Tauri 2 (Rust) and Next.js 16 (App Router as a static export, React 19, Tailwind 4). The views are real routes (`/`, `/pixel`, `/gallery`, `/connections`) that Tauri serves from the exported HTML.
 
@@ -49,6 +49,17 @@ CI runs the Rust checks on Linux and Windows.
 ## Masks
 
 *Paint mask* opens a brush over the input image (B brush, E eraser, `[` `]` size, Ctrl Z undo). You can also drop a mask file: white or transparent pixels mark the area to change. Internally a mask is always white-means-change at the input image's size; the OpenAI adapter converts it to the transparent form OpenAI expects. ComfyUI and RunPod inpaint with `SetLatentNoiseMask`; A1111, fal.ai and Replicate get the mask as an image input.
+
+## Reference images
+
+Paste, drop or attach images in the prompt box, or attach a result with the paperclip on its action bar, and they go to the model with the prompt in the order shown; the numbers on the thumbnails match "image 1", "image 2" in the prompt. In image to image the input image goes first and the references follow.
+
+| Backend | Sent as |
+| --- | --- |
+| OpenAI | The edits endpoint with several `image[]` parts (GPT Image models, up to 16) |
+| OpenRouter | `input_references` (up to 16) |
+| fal.ai, Replicate | The model's list image input (`image_urls`, `input_images`, ...), or its single image input for one reference; pick an edit model that takes images |
+| ComfyUI, RunPod, A1111 | Not supported; Generate says so instead of leaving them out |
 
 ## Credit
 
