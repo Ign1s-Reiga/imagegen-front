@@ -9,6 +9,7 @@ import { provider } from "@/providers/registry";
 import type { OptionField } from "@/providers/types";
 import { activeConnection, activeWorkflow, capabilitiesFor, effectiveMode, useApp, type FormState } from "@/store/app";
 
+import { PromptHelper } from "../PromptHelper";
 import { Button, Field, IconButton, NumberInput, Segmented, Select, TextArea, TextInput, cx, useFieldId } from "../ui";
 import { ImageDrop } from "./ImageDrop";
 import { MaskEditor } from "./MaskEditor";
@@ -164,7 +165,7 @@ export function ParamsPanel() {
       <aside className="flex w-[360px] shrink-0 flex-col justify-center gap-3 border-r border-line bg-panel px-6">
         <p className="text-fg">No backend connected yet.</p>
         <p className="text-fg-dim">
-          Add OpenAI, ComfyUI, RunPod, fal.ai, Replicate or a Stable Diffusion WebUI to start generating.
+          Add OpenAI, OpenRouter, ComfyUI, RunPod, fal.ai, Replicate or a Stable Diffusion WebUI to start generating.
         </p>
         <Link
           href="/connections"
@@ -250,7 +251,25 @@ export function ParamsPanel() {
         )}
 
         {promptShown && (
-          <Field label="Prompt" htmlFor={promptId}>
+          <Field
+            label="Prompt"
+            htmlFor={promptId}
+            aside={
+              <PromptHelper
+                prompt={form.prompt}
+                negativePrompt={form.negativePrompt}
+                target={{
+                  backend: def.label,
+                  model: form.model.trim() || (workflow ? workflow.name : def.defaultModel(connection.config)),
+                  negative: caps.negativePrompt,
+                  purpose: "image",
+                }}
+                onChange={(next) =>
+                  setForm({ prompt: next.prompt, ...(next.negativePrompt !== undefined ? { negativePrompt: next.negativePrompt } : {}) })
+                }
+              />
+            }
+          >
             <TextArea
               id={promptId}
               rows={7}
