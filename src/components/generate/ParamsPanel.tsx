@@ -13,6 +13,7 @@ import { PromptHelper } from "../PromptHelper";
 import { Button, Field, IconButton, NumberInput, Segmented, Select, TextArea, TextInput, cx, useFieldId } from "../ui";
 import { ImageDrop } from "./ImageDrop";
 import { MaskEditor } from "./MaskEditor";
+import { PromptBox } from "./PromptBox";
 import { WorkflowEditor } from "./WorkflowEditor";
 
 const ASPECTS: [number, number][] = [
@@ -263,6 +264,7 @@ export function ParamsPanel() {
                   model: form.model.trim() || (workflow ? workflow.name : def.defaultModel(connection.config)),
                   negative: caps.negativePrompt,
                   purpose: "image",
+                  references: form.references.length,
                 }}
                 onChange={(next) =>
                   setForm({ prompt: next.prompt, ...(next.negativePrompt !== undefined ? { negativePrompt: next.negativePrompt } : {}) })
@@ -270,13 +272,13 @@ export function ParamsPanel() {
               />
             }
           >
-            <TextArea
+            <PromptBox
               id={promptId}
-              rows={7}
               value={form.prompt}
-              onChange={(e) => set("prompt")(e.target.value)}
-              placeholder="Describe the image"
-              className="font-serif text-[16.5px] leading-[1.5]"
+              onChange={set("prompt")}
+              references={form.references}
+              limit={caps.references}
+              backend={def.label}
             />
           </Field>
         )}

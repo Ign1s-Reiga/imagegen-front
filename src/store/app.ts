@@ -46,7 +46,12 @@ export interface FormState extends PersistedForm {
   mode: Mode;
   initImage: InputImage | null;
   mask: InputImage | null;
+  /** Images attached to the prompt, sent to the model as references. */
+  references: InputImage[];
 }
+
+/** The most reference images any backend takes. */
+export const MAX_REFERENCES = 16;
 
 export interface Job {
   status: "running" | "error";
@@ -83,6 +88,7 @@ export interface GenerationRequest {
   strength: number;
   initImage: InputImage | null;
   mask: InputImage | null;
+  references?: InputImage[];
 }
 
 interface Choices {
@@ -122,6 +128,7 @@ const BASE_FORM: FormState = {
   mode: "txt2img",
   initImage: null,
   mask: null,
+  references: [],
 };
 
 interface AppState {
@@ -168,6 +175,10 @@ interface AppState {
   reuseSettings(generation: GenerationRecord): void;
   loadAsInput(image: ImageRecord): Promise<void>;
   setInputFromFile(file: File, target: "initImage" | "mask"): Promise<void>;
+  /** Attaches image files to the prompt as references; other files are skipped with a notice. */
+  addReferences(files: File[]): Promise<void>;
+  loadAsReference(image: ImageRecord): Promise<void>;
+  removeReference(index: number): void;
   toggleFavorite(image: ImageRecord): Promise<void>;
   removeImage(image: ImageRecord): Promise<void>;
   removeGeneration(generation: GenerationRecord): Promise<void>;
@@ -571,9 +582,17 @@ export const useApp = create<AppState>()((set, get) => {
         strength: request.strength,
         initImage: request.mode === "img2img" ? request.initImage : null,
         mask: request.mode === "img2img" && caps.mask ? request.mask : null,
+        references: request.references ?? [],
         options: form.options,
         workflow,
       };
+      if (params.references.length > caps.references) {
+        throw new Error(
+          caps.references
+            ? `${def.label} takes at most ${caps.references} reference images.`
+            : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
+        );
+      }
 
       const config = await resolveConfig(connection);
       const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
@@ -607,7 +626,11 @@ export const useApp = create<AppState>()((set, get) => {
             strength: params.strength,
             options: params.options,
             connectionId: connection.id,
-            info: { ...result.info, ...(workflow ? { workflow: workflow.name } : {}) },
+            info: {
+              ...result.info,
+              ...(workflow ? { workflow: workflow.name } : {}),
+              ...(params.references.length ? { references: params.references.length } : {}),
+            },
           },
           durationMs: Date.now() - startedAt,
         },
@@ -635,6 +658,13 @@ export const useApp = create<AppState>()((set, get) => {
       }
       const mode = effectiveMode(form, caps);
       if (mode === "img2img" && !form.initImage) return fail("Add an input image, or switch to text to image.");
+      if (form.references.length > caps.references) {
+        return fail(
+          caps.references
+            ? `${def.label} takes at most ${caps.references} reference images. Remove some.`
+            : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
+        );
+      }
 
       const controller = new AbortController();
       const startedAt = Date.now();
@@ -655,6 +685,7 @@ export const useApp = create<AppState>()((set, get) => {
             strength: form.strength,
             initImage: form.initImage,
             mask: form.mask,
+            references: form.references,
           },
           {
             signal: controller.signal,
@@ -759,6 +790,35 @@ export const useApp = create<AppState>()((set, get) => {
       }
       const mask = await normalizeMask(bytes, mime, init.width, init.height);
       get().setForm({ mask: { ...mask, name: file.name } });
+    },
+
+    async addReferences(files) {
+      const added: InputImage[] = [];
+      const skipped: string[] = [];
+      for (const file of files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const mime = sniffImageMime(bytes, file.type);
+        const size = mime.startsWith("image/") ? await imageDimensions(bytes, mime) : null;
+        if (size) added.push({ bytes, mime, name: file.name || "Pasted image", ...size });
+        else skipped.push(file.name || "a pasted file");
+      }
+      const current = get().form.references;
+      const room = MAX_REFERENCES - current.length;
+      if (added.length) get().setForm({ references: [...current, ...added.slice(0, Math.max(0, room))] });
+      if (added.length > room) set({ notice: `Up to ${MAX_REFERENCES} reference images; the rest were left out.` });
+      else if (skipped.length) set({ notice: `${skipped.join(", ")} ${skipped.length === 1 ? "is not an image" : "are not images"} this app can read.` });
+    },
+
+    async loadAsReference(image) {
+      const current = get().form.references;
+      if (current.length >= MAX_REFERENCES) throw new Error(`Up to ${MAX_REFERENCES} reference images.`);
+      const bytes = await readImageBytes(image.id);
+      const reference: InputImage = { bytes, mime: image.mime, name: image.fileName, width: image.width ?? 1024, height: image.height ?? 1024 };
+      get().setForm({ references: [...current, reference] });
+    },
+
+    removeReference(index) {
+      get().setForm({ references: get().form.references.filter((_, i) => i !== index) });
     },
 
     async toggleFavorite(image) {

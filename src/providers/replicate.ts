@@ -1,7 +1,7 @@
 import { parseDataUri, sniffImageMime, toDataUri } from "@/lib/bytes";
 import { HttpError, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
 
-import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type SchemaProps } from "./schema-input";
+import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type ImageRefs, type SchemaProps } from "./schema-input";
 import type { ConnectionConfig, GeneratedImage, InputImage, ProviderDefinition } from "./types";
 
 const API = "https://api.replicate.com/v1";
@@ -152,6 +152,7 @@ export const replicate: ProviderDefinition = {
     size: true,
     model: true,
     maxCount: 4,
+    references: 16,
     sizeStep: 8,
   }),
   defaultModel: (config) => config.model || "black-forest-labs/flux-schnell",
@@ -173,12 +174,16 @@ export const replicate: ProviderDefinition = {
     const model = params.model || replicate.defaultModel(config);
     const { props, versionId } = await modelSchema(config, model, ctx.signal);
 
-    const refs: { init?: string; mask?: string } = {};
+    const refs: ImageRefs = {};
     if (params.mode === "img2img") {
       if (!params.initImage) throw new Error("Add an input image for image to image.");
       ctx.onProgress({ stage: "uploading", message: "Uploading input image" });
       refs.init = await uploadInput(config, params.initImage, ctx.signal);
       if (params.mask) refs.mask = await uploadInput(config, params.mask, ctx.signal);
+    }
+    if (params.references.length) {
+      ctx.onProgress({ stage: "uploading", message: "Uploading reference images" });
+      refs.references = await Promise.all(params.references.map((r) => uploadInput(config, r, ctx.signal)));
     }
     const input = mergeExtraJson(mapToSchema(props, params, refs), params.options.extra);
 

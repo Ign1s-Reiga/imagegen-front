@@ -140,6 +140,7 @@ export const openrouter: ProviderDefinition = {
     size: true,
     model: true,
     maxCount: 4,
+    references: 16,
     sizeStep: 8,
   }),
   defaultModel: (config) => config.model || "",
@@ -180,11 +181,12 @@ export const openrouter: ProviderDefinition = {
       body.background = o.background;
       if (o.background === "transparent") body.output_format = "png";
     }
-    if (params.mode === "img2img") {
-      if (!params.initImage) throw new Error("Add an input image to edit.");
-      body.input_references = [
-        { type: "image_url", image_url: { url: toDataUri(params.initImage.bytes, params.initImage.mime) } },
-      ];
+    if (params.mode === "img2img" && !params.initImage) throw new Error("Add an input image to edit.");
+    // The input image to edit comes first, then the reference images.
+    const inputs = [...(params.mode === "img2img" && params.initImage ? [params.initImage] : []), ...params.references];
+    if (inputs.length > 16) throw new Error("OpenRouter takes at most 16 images per request.");
+    if (inputs.length) {
+      body.input_references = inputs.map((image) => ({ type: "image_url", image_url: { url: toDataUri(image.bytes, image.mime) } }));
     }
 
     ctx.onProgress({ stage: "running", message: `Waiting for ${model}` });

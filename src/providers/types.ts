@@ -39,6 +39,8 @@ export interface GenerateParams {
   initImage: InputImage | null;
   /** Grayscale PNG at the input image's size: white marks the area to change. */
   mask: InputImage | null;
+  /** Images that guide the result (a character, a style, a product), in the order given. */
+  references: InputImage[];
   /** Values for the provider's own `options` fields, keyed by field key. */
   options: Record<string, string>;
   /** Imported ComfyUI workflow to run instead of the built-in graph. */
@@ -114,6 +116,8 @@ export interface Capabilities {
   /** A model can be chosen. */
   model: boolean;
   maxCount: number;
+  /** Reference images a generation can take; 0 when the backend cannot use them. */
+  references: number;
   /** Width/height must be a multiple of this. */
   sizeStep: number;
 }

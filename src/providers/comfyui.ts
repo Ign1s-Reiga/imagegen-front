@@ -237,6 +237,7 @@ const BUILT_IN_CAPABILITIES: Capabilities = {
   size: true,
   model: true,
   maxCount: 16,
+  references: 0,
   sizeStep: 8,
 };
 

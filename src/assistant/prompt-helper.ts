@@ -15,6 +15,8 @@ export interface PromptTarget {
    * style words itself. "sprite-edit": a change to part of a sprite.
    */
   purpose: "image" | "sprite" | "sprite-edit";
+  /** Reference images attached to the prompt. */
+  references?: number;
 }
 
 export interface ImprovedPrompt {
@@ -52,11 +54,16 @@ function systemPrompt(target: PromptTarget): string {
     "You rewrite prompts for image generation models. Keep the user's subject, intent and every specific detail they gave, and add what the model needs to render it well: subject, composition, lighting, style, colour and medium, roughly in that order of importance. Do not invent a different subject.",
     `The prompt is for ${target.model ? `${target.model} on ${target.backend}` : target.backend}. Diffusion checkpoints (Stable Diffusion 1.5, SDXL, Pony, Illustrious) respond best to comma-separated descriptive phrases. FLUX, GPT Image, Gemini, Seedream, Qwen-Image and other recent models respond best to clear natural sentences. Judge from the model name; when you cannot tell, write clear sentences.`,
     PURPOSE[target.purpose],
+    target.references
+      ? `The user attached ${target.references} reference image${target.references === 1 ? "" : "s"}, which the model receives with the prompt in that order. You cannot see them: keep every mention of them ("the first image", "this character") and do not guess what they show.`
+      : "",
     target.negative
       ? "This model takes a negative prompt: also give a short negative_prompt, keeping the user's existing items."
       : "This model takes no negative prompt, so give none; describe what you want instead of what to avoid.",
     "Write in the language of the user's prompt. Reply only by calling set_prompt.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export async function improvePrompt(
