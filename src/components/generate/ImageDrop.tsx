@@ -1,9 +1,9 @@
 "use client";
 
 import { ImagePlus, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
-import { bytesToObjectUrl } from "@/lib/bytes";
+import { useImageUrl } from "@/lib/use-image-url";
 import type { InputImage } from "@/providers/types";
 
 import { cx } from "../ui";
@@ -23,8 +23,7 @@ export function ImageDrop({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
-  const url = useMemo(() => (image ? bytesToObjectUrl(image.bytes, image.mime) : null), [image]);
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
+  const url = useImageUrl(image?.bytes, image?.mime ?? "");
 
   const take = (files: FileList | null | undefined) => {
     const file = Array.from(files ?? []).find((f) => f.type.startsWith("image/"));
