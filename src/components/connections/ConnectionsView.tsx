@@ -6,9 +6,9 @@ import { useEffect, useState } from "react";
 import { getSecret } from "@/lib/secrets";
 import { midSentence } from "@/lib/text";
 import { describeCredit } from "@/providers/credit";
-import { PROVIDER_ORDER, provider } from "@/providers/registry";
-import type { Connection, ConnectionConfig, CreditInfo, ProviderKind } from "@/providers/types";
-import { useApp } from "@/store/app";
+import { SERVICE_ORDER, isImageKind, service } from "@/providers/registry";
+import type { Connection, ConnectionConfig, ConnectionKind, CreditInfo } from "@/providers/types";
+import { assistantFor, useApp } from "@/store/app";
 
 import { Button, Field, TextInput, cx, useFieldId } from "../ui";
 
@@ -27,7 +27,7 @@ const describeError = (err: unknown) =>
       ? err.message
       : String(err);
 
-function CreditSummary({ check, kind }: { check: CreditCheck; kind: ProviderKind }) {
+function CreditSummary({ check, kind }: { check: CreditCheck; kind: ConnectionKind }) {
   if (check.status === "idle") return <p className="text-[13px] text-fg-faint">Not checked yet.</p>;
   if (check.status === "loading") return <p className="text-[13px] text-fg-faint">Checking</p>;
   if (check.status === "error") return <p className="text-[13px] leading-snug text-danger">{check.message}</p>;
@@ -56,21 +56,24 @@ function uniqueName(base: string, taken: string[]) {
   for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
 }
 
-function newConnection(kind: ProviderKind, taken: string[]): Connection {
-  const def = provider(kind);
+function newConnection(kind: ConnectionKind, taken: string[]): Connection {
+  const def = service(kind);
   const config: ConnectionConfig = {};
   for (const field of def.fields) if (field.type !== "secret" && field.default) config[field.key] = field.default;
   return { id: crypto.randomUUID(), kind, name: uniqueName(def.label, taken), config };
 }
 
-function ProviderPicker({ onPick, onCancel, canCancel }: { onPick: (kind: ProviderKind) => void; onCancel: () => void; canCancel: boolean }) {
+function ProviderPicker({ onPick, onCancel, canCancel }: { onPick: (kind: ConnectionKind) => void; onCancel: () => void; canCancel: boolean }) {
   return (
     <div className="max-w-xl">
       <h2 className="text-[17px] font-semibold">Add a connection</h2>
-      <p className="mt-1 text-fg-dim">Choose where images are generated. You can add several and switch between them.</p>
+      <p className="mt-1 text-fg-dim">
+        Choose where images are generated. You can add several and switch between them. Claude and OpenRouter also run the
+        prompt helper and the pixel assistant.
+      </p>
       <ul className="mt-5 divide-y divide-line border-y border-line">
-        {PROVIDER_ORDER.map((kind) => {
-          const def = provider(kind);
+        {SERVICE_ORDER.map((kind) => {
+          const def = service(kind);
           return (
             <li key={kind}>
               <button
@@ -98,7 +101,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
   const saveConnection = useApp((s) => s.saveConnection);
   const removeConnection = useApp((s) => s.removeConnection);
   const notify = useApp((s) => s.notify);
-  const def = provider(initial.kind);
+  const def = service(initial.kind);
   const [name, setName] = useState(initial.name);
   const [config, setConfig] = useState<ConnectionConfig>(initial.config);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -201,7 +204,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
       <p className="mt-1 text-fg-dim">{def.summary}</p>
 
       <div className="mt-6 space-y-4">
-        <Field label="Name" htmlFor={nameId} help="Shown in the backend menu.">
+        <Field label="Name" htmlFor={nameId} help={isImageKind(def.kind) ? "Shown in the backend menu." : "Shown in the assistant's model menu."}>
           <TextInput id={nameId} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
 
@@ -338,6 +341,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
 export function ConnectionsView() {
   const connections = useApp((s) => s.connections);
   const activeConnectionId = useApp((s) => s.activeConnectionId);
+  const assistantId = useApp((s) => assistantFor(s)?.connection.id ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(activeConnectionId ?? connections[0]?.id ?? null);
   const [adding, setAdding] = useState<Connection | null>(null);
   const [picking, setPicking] = useState(connections.length === 0);
@@ -367,7 +371,10 @@ export function ConnectionsView() {
                   {c.name}
                   {c.id === activeConnectionId && <span className="size-1.5 rounded-full bg-safelight" aria-label="In use" />}
                 </span>
-                <span className="text-[12.5px] text-fg-faint">{provider(c.kind).label}</span>
+                <span className="text-[12.5px] text-fg-faint">
+                  {service(c.kind).label}
+                  {c.id === assistantId && ", runs the assistant"}
+                </span>
               </button>
             </li>
           ))}

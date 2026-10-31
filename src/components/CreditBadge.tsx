@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 import { describeCredit } from "@/providers/credit";
-import { provider } from "@/providers/registry";
+import { service } from "@/providers/registry";
 import type { Connection } from "@/providers/types";
 import { useApp } from "@/store/app";
 
@@ -18,7 +18,7 @@ const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 export function CreditBadge({ connection }: { connection: Connection }) {
   const credit = useApp((s) => s.credits[connection.id]);
   const loadCredit = useApp((s) => s.loadCredit);
-  const supported = Boolean(provider(connection.kind).getCredit);
+  const supported = Boolean(service(connection.kind).getCredit);
 
   useEffect(() => {
     if (!supported) return;

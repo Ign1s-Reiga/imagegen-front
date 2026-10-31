@@ -134,6 +134,7 @@ export const openai: ProviderDefinition = {
     size: true,
     model: true,
     maxCount: 10,
+    references: 16,
     sizeStep: 16,
   }),
   defaultModel: (config) => config.model || "gpt-image-2",
@@ -188,13 +189,21 @@ export const openai: ProviderDefinition = {
     let response: ImagesResponse;
 
     ctx.onProgress({ stage: "running", message: `Waiting for ${model}` });
-    if (params.mode === "img2img") {
-      if (!params.initImage) throw new Error("Add an input image to edit.");
+    // Reference images go to the edits endpoint too: without a mask it makes a
+    // new image from all of them, with the input image (if any) first.
+    if (params.mode === "img2img" || params.references.length) {
+      if (params.mode === "img2img" && !params.initImage) throw new Error("Add an input image to edit.");
+      const images = [...(params.mode === "img2img" && params.initImage ? [params.initImage] : []), ...params.references];
+      if (images.length > 1 && isDalle(model)) {
+        throw new Error(`${model} takes one image. Use a GPT Image model for reference images.`);
+      }
+      if (images.length > 16) throw new Error("OpenAI takes at most 16 images per request.");
       const form = new FormData();
       for (const [key, value] of fields) form.append(key, value);
-      const { initImage } = params;
-      form.append("image", new Blob([initImage.bytes], { type: initImage.mime }), initImage.name);
-      if (params.mask) {
+      for (const image of images) {
+        form.append(images.length > 1 ? "image[]" : "image", new Blob([image.bytes], { type: image.mime }), image.name);
+      }
+      if (params.mode === "img2img" && params.mask) {
         const mask = await maskForOpenAI(params.mask);
         form.append("mask", new Blob([mask.bytes], { type: mask.mime }), mask.name);
       }

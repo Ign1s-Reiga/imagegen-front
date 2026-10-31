@@ -35,6 +35,9 @@ export interface AiSettings {
 
 export type ApplyTarget = "layer" | "frame" | "replace" | "region";
 
+/** The AI panel shows the assistant chat or the image tools. */
+export type AiPanelTab = "assistant" | "tools";
+
 interface PixelState {
   loaded: boolean;
   doc: D.PixelDoc;
@@ -60,6 +63,7 @@ interface PixelState {
   playing: boolean;
   hover: { x: number; y: number } | null;
 
+  aiPanel: AiPanelTab;
   aiTab: AiOp;
   ai: AiSettings;
   aiJob: AiJob | null;
@@ -70,6 +74,9 @@ interface PixelState {
   /** Replaces the sprite; undo brings the previous one back. */
   replaceDoc(doc: D.PixelDoc): void;
   commit(doc: D.PixelDoc, coalesce?: string): void;
+  /** Until endBatch, every commit joins one undo step (the assistant's edits for one message). */
+  beginBatch(): void;
+  endBatch(): void;
   undo(): void;
   redo(): void;
   markSaved(): void;
@@ -116,11 +123,13 @@ interface PixelState {
   toggleGrid(): void;
   setHover(hover: { x: number; y: number } | null): void;
 
+  setAiPanel(tab: AiPanelTab): void;
   setAiTab(tab: AiOp): void;
   setAi<K extends AiOp>(op: K, patch: Partial<AiSettings[K]>): void;
   runAi(): Promise<void>;
   cancelAi(): void;
   dismissAiError(): void;
+  addCandidates(results: Candidate[]): void;
   applyCandidate(id: string, target: ApplyTarget): string | null;
   dismissCandidate(id: string): void;
 }
@@ -136,6 +145,8 @@ const persisted = () => (storePromise ??= load("pixel.json", { defaults: {}, aut
 
 let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
 let lastCoalesce: { key: string; at: number } | null = null;
+/** Open undo batch; `pushed` once the batch's undo step exists. */
+let batch: { pushed: boolean } | null = null;
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -195,6 +206,7 @@ export const usePixel = create<PixelState>()((set, get) => {
     playing: false,
     hover: null,
 
+    aiPanel: "assistant",
     aiTab: "create",
     ai: DEFAULT_AI,
     aiJob: null,
@@ -232,8 +244,12 @@ export const usePixel = create<PixelState>()((set, get) => {
       const state = get();
       if (doc === state.doc) return;
       const now = Date.now();
-      const merge = coalesce !== undefined && lastCoalesce?.key === coalesce && now - lastCoalesce.at < COALESCE_MS;
+      let merge = coalesce !== undefined && lastCoalesce?.key === coalesce && now - lastCoalesce.at < COALESCE_MS;
       lastCoalesce = coalesce !== undefined ? { key: coalesce, at: now } : null;
+      if (batch) {
+        merge = batch.pushed;
+        batch.pushed = true;
+      }
       set({
         doc,
         past: merge ? state.past : [...state.past.slice(-(HISTORY_LIMIT - 1)), state.doc],
@@ -244,11 +260,23 @@ export const usePixel = create<PixelState>()((set, get) => {
       scheduleAutosave();
     },
 
+    beginBatch() {
+      batch = { pushed: false };
+      lastCoalesce = null;
+    },
+
+    endBatch() {
+      batch = null;
+      lastCoalesce = null;
+    },
+
     undo() {
       const { past, doc, future } = get();
       const previous = past[past.length - 1];
       if (!previous) return;
       lastCoalesce = null;
+      // Edits after an undo start a new step, so the undone state stays reachable.
+      if (batch) batch.pushed = false;
       set((s) => ({ doc: previous, past: past.slice(0, -1), future: [doc, ...future], dirty: true, ...cursorFor(previous, s) }));
       scheduleAutosave();
     },
@@ -258,6 +286,7 @@ export const usePixel = create<PixelState>()((set, get) => {
       const next = future[0];
       if (!next) return;
       lastCoalesce = null;
+      if (batch) batch.pushed = false;
       set((s) => ({ doc: next, past: [...past, doc], future: future.slice(1), dirty: true, ...cursorFor(next, s) }));
       scheduleAutosave();
     },
@@ -433,6 +462,9 @@ export const usePixel = create<PixelState>()((set, get) => {
       set({ hover });
     },
 
+    setAiPanel(aiPanel) {
+      set({ aiPanel });
+    },
     setAiTab(aiTab) {
       set({ aiTab, aiError: null });
     },
@@ -463,7 +495,8 @@ export const usePixel = create<PixelState>()((set, get) => {
             : op === "edit"
               ? await editRegion(doc, frameId, { ...ai.edit, region: selection! }, ctx)
               : await varySprite(doc, frameId, ai.vary, ctx);
-        set((s) => ({ aiJob: null, candidates: [...results, ...s.candidates].slice(0, MAX_CANDIDATES) }));
+        set({ aiJob: null });
+        get().addCandidates(results);
       } catch (err) {
         if (controller.signal.aborted || isAbortError(err)) set((s) => (s.aiJob?.controller === controller ? { aiJob: null } : {}));
         else set((s) => (s.aiJob?.controller === controller ? { aiJob: null, aiError: errorMessage(err) } : {}));
@@ -477,6 +510,10 @@ export const usePixel = create<PixelState>()((set, get) => {
 
     dismissAiError() {
       set({ aiError: null });
+    },
+
+    addCandidates(results) {
+      set((s) => ({ candidates: [...results, ...s.candidates].slice(0, MAX_CANDIDATES) }));
     },
 
     applyCandidate(id, target) {

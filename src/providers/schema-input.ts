@@ -103,7 +103,13 @@ export interface ImageRefs {
   /** URL or data URI of the init image. */
   init?: string;
   mask?: string;
+  /** URLs or data URIs of reference images, in order. */
+  references?: string[];
 }
+
+/** Image inputs that take a list, e.g. several references for an edit model. */
+const LIST_IMAGE_KEYS = ["image_urls", "input_images", "images", "reference_images", "reference_image_urls", "image_input"];
+const SINGLE_IMAGE_KEYS = ["image_url", "image", "input_image", "init_image"];
 
 const first = (props: SchemaProps, names: string[]) => names.find((n) => n in props);
 
@@ -142,10 +148,23 @@ export function mapToSchema(props: SchemaProps, params: GenerateParams, refs: Im
   const cfgKey = first(props, ["guidance_scale", "guidance", "cfg_scale", "cfg"]);
   if (cfgKey && params.cfg > 0) input[cfgKey] = clamp(params.cfg, props[cfgKey]);
 
-  if (params.mode === "img2img" && refs.init) {
-    const imageKey = first(props, ["image_url", "image", "input_image", "init_image", "image_urls", "input_images"]);
+  const references = refs.references ?? [];
+  if (references.length) {
+    // The input image (when editing) goes first, then the references.
+    const images = [...(params.mode === "img2img" && refs.init ? [refs.init] : []), ...references];
+    const listKey = first(props, LIST_IMAGE_KEYS);
+    const singleKey = first(props, SINGLE_IMAGE_KEYS);
+    if (listKey) input[listKey] = images;
+    else if (singleKey && images.length === 1) input[singleKey] = images[0];
+    else if (singleKey) throw new Error("This model takes one image. Remove reference images, or pick a model that takes several.");
+    else throw new Error("This model takes no images. Remove the reference images, or pick a model that takes them.");
+  } else if (params.mode === "img2img" && refs.init) {
+    const imageKey = first(props, [...SINGLE_IMAGE_KEYS, "image_urls", "input_images"]);
     if (!imageKey) throw new Error("This model has no image input. Pick an image-to-image model.");
     input[imageKey] = imageKey.endsWith("s") ? [refs.init] : refs.init;
+  }
+
+  if (params.mode === "img2img" && refs.init) {
     const strengthKey = first(props, ["strength", "prompt_strength", "denoising_strength", "image_strength"]);
     if (strengthKey) input[strengthKey] = params.strength;
     if (refs.mask) {

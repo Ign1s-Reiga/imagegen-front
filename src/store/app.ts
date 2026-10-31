@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { create } from "zustand";
 
 import { imageDimensions, sniffImageMime } from "@/lib/bytes";
@@ -17,7 +18,8 @@ import { isAbortError } from "@/lib/http";
 import { normalizeMask } from "@/lib/mask";
 import { midSentence } from "@/lib/text";
 import { deleteConnectionSecrets, deleteSecret, resolveConfig, setSecret } from "@/lib/secrets";
-import { loadSettings, saveSetting, type PersistedForm } from "@/lib/settings";
+import { loadSettings, saveSetting, type AssistantChoice, type PersistedForm } from "@/lib/settings";
+import type { ChatModel, ChatService } from "@/providers/chat";
 import {
   boundInput,
   detectBindings,
@@ -25,13 +27,14 @@ import {
   workflowDefaults,
   type SavedWorkflow,
 } from "@/providers/comfy-workflow";
-import { provider } from "@/providers/registry";
+import { chatService, isImageConnection, provider, service } from "@/providers/registry";
 import type {
   Capabilities,
   Connection,
   CreditInfo,
   GenerateParams,
   GeneratedImage,
+  ImageConnection,
   InputImage,
   Mode,
   ModelChoice,
@@ -43,7 +46,12 @@ export interface FormState extends PersistedForm {
   mode: Mode;
   initImage: InputImage | null;
   mask: InputImage | null;
+  /** Images attached to the prompt, sent to the model as references. */
+  references: InputImage[];
 }
+
+/** The most reference images any backend takes. */
+export const MAX_REFERENCES = 16;
 
 export interface Job {
   status: "running" | "error";
@@ -80,6 +88,7 @@ export interface GenerationRequest {
   strength: number;
   initImage: InputImage | null;
   mask: InputImage | null;
+  references?: InputImage[];
 }
 
 interface Choices {
@@ -88,6 +97,12 @@ interface Choices {
   schedulers?: string[];
   /** Combo choices for workflow inputs, keyed "ClassType.input". */
   inputs?: Record<string, string[]>;
+  loading?: boolean;
+  error?: string;
+}
+
+export interface ChatModelsState {
+  models?: ChatModel[];
   loading?: boolean;
   error?: string;
 }
@@ -113,6 +128,7 @@ const BASE_FORM: FormState = {
   mode: "txt2img",
   initImage: null,
   mask: null,
+  references: [],
 };
 
 interface AppState {
@@ -130,8 +146,13 @@ interface AppState {
   /** Bumped whenever the gallery contents change. */
   galleryVersion: number;
   notice: string | null;
+  /** Chat model for the prompt helper and the pixel assistant; null picks the first one available. */
+  assistant: AssistantChoice | null;
+  chatModels: Record<string, ChatModelsState>;
 
   init(): Promise<void>;
+  setAssistant(choice: AssistantChoice): void;
+  loadChatModels(connectionId: string): Promise<void>;
   setForm(patch: Partial<FormState>): void;
   selectConnection(id: string): void;
   saveConnection(connection: Connection, secrets: Record<string, string | null>): Promise<void>;
@@ -154,6 +175,10 @@ interface AppState {
   reuseSettings(generation: GenerationRecord): void;
   loadAsInput(image: ImageRecord): Promise<void>;
   setInputFromFile(file: File, target: "initImage" | "mask"): Promise<void>;
+  /** Attaches image files to the prompt as references; other files are skipped with a notice. */
+  addReferences(files: File[]): Promise<void>;
+  loadAsReference(image: ImageRecord): Promise<void>;
+  removeReference(index: number): void;
   toggleFavorite(image: ImageRecord): Promise<void>;
   removeImage(image: ImageRecord): Promise<void>;
   removeGeneration(generation: GenerationRecord): Promise<void>;
@@ -162,8 +187,33 @@ interface AppState {
 
 type Selectable = Pick<AppState, "connections" | "activeConnectionId" | "workflows" | "form">;
 
-export const activeConnection = (s: Pick<AppState, "connections" | "activeConnectionId">) =>
-  s.connections.find((c) => c.id === s.activeConnectionId) ?? null;
+/** The image backend in use. Chat-only connections (Claude) are never active. */
+export const activeConnection = (s: Pick<AppState, "connections" | "activeConnectionId">): ImageConnection | null => {
+  const connection = s.connections.find((c) => c.id === s.activeConnectionId);
+  return connection && isImageConnection(connection) ? connection : null;
+};
+
+export interface Assistant {
+  connection: Connection;
+  chat: ChatService;
+  model: string;
+}
+
+/** The saved assistant choice, or else the first connection that has chat models. */
+export function assistantFor(s: Pick<AppState, "connections" | "assistant">): Assistant | null {
+  const candidates = s.connections.filter((c) => chatService(c));
+  const chosen = candidates.find((c) => c.id === s.assistant?.connectionId) ?? candidates[0];
+  if (!chosen) return null;
+  const chat = chatService(chosen)!;
+  const model = (chosen.id === s.assistant?.connectionId && s.assistant.model.trim()) || chat.defaultModel;
+  return { connection: chosen, chat, model };
+}
+
+export function useAssistant(): Assistant | null {
+  const connections = useApp((s) => s.connections);
+  const assistant = useApp((s) => s.assistant);
+  return useMemo(() => assistantFor({ connections, assistant }), [connections, assistant]);
+}
 
 /** The imported workflow selected for the active connection, if any. */
 export const activeWorkflow = (s: Selectable) => {
@@ -173,7 +223,7 @@ export const activeWorkflow = (s: Selectable) => {
   return id ? (s.workflows.find((w) => w.id === id) ?? null) : null;
 };
 
-export function capabilitiesFor(connection: Connection | null, workflow: SavedWorkflow | null): Capabilities | null {
+export function capabilitiesFor(connection: ImageConnection | null, workflow: SavedWorkflow | null): Capabilities | null {
   return connection ? provider(connection.kind).capabilities(connection.config, workflow) : null;
 }
 
@@ -200,7 +250,7 @@ const defined = <T extends object>(obj: T) =>
 
 /** Form for a connection: base, then provider defaults, then what was last used. */
 function formFor(
-  connection: Connection | null,
+  connection: ImageConnection | null,
   forms: Record<string, Partial<PersistedForm>>,
   current: FormState,
 ): FormState {
@@ -252,7 +302,7 @@ export const useApp = create<AppState>()((set, get) => {
   };
 
   /** Loads combo choices for the inputs an imported workflow exposes. */
-  const loadWorkflowChoices = async (connection: Connection, workflow: SavedWorkflow) => {
+  const loadWorkflowChoices = async (connection: ImageConnection, workflow: SavedWorkflow) => {
     const def = provider(connection.kind);
     if (!def.listInputChoices) return;
     const wanted = workflow.bindings
@@ -289,12 +339,14 @@ export const useApp = create<AppState>()((set, get) => {
     credits: {},
     galleryVersion: 0,
     notice: null,
+    assistant: null,
+    chatModels: {},
 
     async init() {
       if (get().ready) return;
       const settings = await loadSettings();
-      const active =
-        settings.connections.find((c) => c.id === settings.activeConnectionId) ?? settings.connections[0] ?? null;
+      const backends = settings.connections.filter(isImageConnection);
+      const active = backends.find((c) => c.id === settings.activeConnectionId) ?? backends[0] ?? null;
       const base: FormState = { ...BASE_FORM, ...settings.forms[GLOBAL_KEY] };
       const recent = await listGenerations({ limit: 40 }).catch(() => []);
       set({
@@ -304,12 +356,34 @@ export const useApp = create<AppState>()((set, get) => {
         forms: settings.forms,
         form: formFor(active, settings.forms, base),
         workflows: settings.workflows,
+        assistant: settings.assistant,
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,
       });
       if (active) {
         void get().loadChoices(active.id);
         void get().loadCredit(active.id);
+      }
+    },
+
+    setAssistant(choice) {
+      set({ assistant: choice });
+      void saveSetting("assistant", choice);
+    },
+
+    async loadChatModels(connectionId) {
+      const connection = get().connections.find((c) => c.id === connectionId);
+      const chat = connection && chatService(connection);
+      const current = get().chatModels[connectionId];
+      if (!connection || !chat || current?.loading || current?.models) return;
+      const update = (patch: ChatModelsState) =>
+        set((s) => ({ chatModels: { ...s.chatModels, [connectionId]: { ...s.chatModels[connectionId], ...patch } } }));
+      update({ loading: true, error: undefined });
+      try {
+        const models = await chat.listModels(await resolveConfig(connection), AbortSignal.timeout(20_000));
+        update({ models, loading: false });
+      } catch (err) {
+        update({ loading: false, error: errorMessage(err) });
       }
     },
 
@@ -320,7 +394,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     selectConnection(id) {
       const connection = get().connections.find((c) => c.id === id) ?? null;
-      if (!connection) return;
+      if (!connection || !isImageConnection(connection)) return;
       const forms = flushForm();
       set({ activeConnectionId: id, form: formFor(connection, forms, get().form) });
       void saveSetting("activeConnectionId", id);
@@ -341,10 +415,12 @@ export const useApp = create<AppState>()((set, get) => {
         connections,
         choices: { ...get().choices, [connection.id]: {} },
         credits: { ...get().credits, [connection.id]: {} },
+        chatModels: { ...get().chatModels, [connection.id]: {} },
       });
       await saveSetting("connections", connections);
       void get().loadCredit(connection.id, { force: true });
-      if (!get().activeConnectionId || existing.length === 0) get().selectConnection(connection.id);
+      if (!isImageConnection(connection)) return;
+      if (!activeConnection(get())) get().selectConnection(connection.id);
       else if (get().activeConnectionId === connection.id) void get().loadChoices(connection.id);
     },
 
@@ -360,8 +436,12 @@ export const useApp = create<AppState>()((set, get) => {
       set({ connections, forms, credits });
       await saveSetting("connections", connections);
       await saveSetting("forms", forms);
+      if (get().assistant?.connectionId === id) {
+        set({ assistant: null });
+        await saveSetting("assistant", null);
+      }
       if (get().activeConnectionId === id) {
-        const next = connections[0];
+        const next = connections.find(isImageConnection);
         if (next) get().selectConnection(next.id);
         else {
           set({ activeConnectionId: null });
@@ -372,7 +452,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     async loadChoices(connectionId) {
       const connection = get().connections.find((c) => c.id === connectionId);
-      if (!connection) return;
+      if (!connection || !isImageConnection(connection)) return;
       const def = provider(connection.kind);
       const update = (patch: Choices) =>
         set((s) => ({ choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], ...patch } } }));
@@ -401,7 +481,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     async loadCredit(connectionId, { force = false } = {}) {
       const connection = get().connections.find((c) => c.id === connectionId);
-      const def = connection && provider(connection.kind);
+      const def = connection && service(connection.kind);
       if (!connection || !def?.getCredit) return;
       const current = get().credits[connectionId];
       if (current?.loading) return;
@@ -502,9 +582,17 @@ export const useApp = create<AppState>()((set, get) => {
         strength: request.strength,
         initImage: request.mode === "img2img" ? request.initImage : null,
         mask: request.mode === "img2img" && caps.mask ? request.mask : null,
+        references: request.references ?? [],
         options: form.options,
         workflow,
       };
+      if (params.references.length > caps.references) {
+        throw new Error(
+          caps.references
+            ? `${def.label} takes at most ${caps.references} reference images.`
+            : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
+        );
+      }
 
       const config = await resolveConfig(connection);
       const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
@@ -538,7 +626,11 @@ export const useApp = create<AppState>()((set, get) => {
             strength: params.strength,
             options: params.options,
             connectionId: connection.id,
-            info: { ...result.info, ...(workflow ? { workflow: workflow.name } : {}) },
+            info: {
+              ...result.info,
+              ...(workflow ? { workflow: workflow.name } : {}),
+              ...(params.references.length ? { references: params.references.length } : {}),
+            },
           },
           durationMs: Date.now() - startedAt,
         },
@@ -566,6 +658,13 @@ export const useApp = create<AppState>()((set, get) => {
       }
       const mode = effectiveMode(form, caps);
       if (mode === "img2img" && !form.initImage) return fail("Add an input image, or switch to text to image.");
+      if (form.references.length > caps.references) {
+        return fail(
+          caps.references
+            ? `${def.label} takes at most ${caps.references} reference images. Remove some.`
+            : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
+        );
+      }
 
       const controller = new AbortController();
       const startedAt = Date.now();
@@ -586,6 +685,7 @@ export const useApp = create<AppState>()((set, get) => {
             strength: form.strength,
             initImage: form.initImage,
             mask: form.mask,
+            references: form.references,
           },
           {
             signal: controller.signal,
@@ -690,6 +790,35 @@ export const useApp = create<AppState>()((set, get) => {
       }
       const mask = await normalizeMask(bytes, mime, init.width, init.height);
       get().setForm({ mask: { ...mask, name: file.name } });
+    },
+
+    async addReferences(files) {
+      const added: InputImage[] = [];
+      const skipped: string[] = [];
+      for (const file of files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const mime = sniffImageMime(bytes, file.type);
+        const size = mime.startsWith("image/") ? await imageDimensions(bytes, mime) : null;
+        if (size) added.push({ bytes, mime, name: file.name || "Pasted image", ...size });
+        else skipped.push(file.name || "a pasted file");
+      }
+      const current = get().form.references;
+      const room = MAX_REFERENCES - current.length;
+      if (added.length) get().setForm({ references: [...current, ...added.slice(0, Math.max(0, room))] });
+      if (added.length > room) set({ notice: `Up to ${MAX_REFERENCES} reference images; the rest were left out.` });
+      else if (skipped.length) set({ notice: `${skipped.join(", ")} ${skipped.length === 1 ? "is not an image" : "are not images"} this app can read.` });
+    },
+
+    async loadAsReference(image) {
+      const current = get().form.references;
+      if (current.length >= MAX_REFERENCES) throw new Error(`Up to ${MAX_REFERENCES} reference images.`);
+      const bytes = await readImageBytes(image.id);
+      const reference: InputImage = { bytes, mime: image.mime, name: image.fileName, width: image.width ?? 1024, height: image.height ?? 1024 };
+      get().setForm({ references: [...current, reference] });
+    },
+
+    removeReference(index) {
+      get().setForm({ references: get().form.references.filter((_, i) => i !== index) });
     },
 
     async toggleFavorite(image) {

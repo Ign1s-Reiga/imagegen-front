@@ -98,6 +98,7 @@ export const a1111: ProviderDefinition = {
     size: true,
     model: true,
     maxCount: 8,
+    references: 0,
     sizeStep: 8,
   }),
   defaultModel: () => "",

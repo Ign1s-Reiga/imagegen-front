@@ -19,6 +19,12 @@ export interface PersistedForm {
   options: Record<string, string>;
 }
 
+/** The chat model behind the prompt helper and the pixel assistant. */
+export interface AssistantChoice {
+  connectionId: string;
+  model: string;
+}
+
 export interface Settings {
   connections: Connection[];
   activeConnectionId: string | null;
@@ -26,9 +32,10 @@ export interface Settings {
   forms: Record<string, Partial<PersistedForm>>;
   /** Imported ComfyUI workflows, shared by ComfyUI and RunPod connections. */
   workflows: SavedWorkflow[];
+  assistant: AssistantChoice | null;
 }
 
-const DEFAULTS: Settings = { connections: [], activeConnectionId: null, forms: {}, workflows: [] };
+const DEFAULTS: Settings = { connections: [], activeConnectionId: null, forms: {}, workflows: [], assistant: null };
 
 let storePromise: Promise<Store> | null = null;
 
@@ -45,6 +52,7 @@ export async function loadSettings(): Promise<Settings> {
     activeConnectionId: (await s.get<string | null>("activeConnectionId")) ?? null,
     forms: (await s.get<Settings["forms"]>("forms")) ?? {},
     workflows: (await s.get<SavedWorkflow[]>("workflows")) ?? [],
+    assistant: (await s.get<AssistantChoice | null>("assistant")) ?? null,
   };
 }
 

@@ -7,11 +7,13 @@ import { useEffect, useMemo, useState } from "react";
 import { aiSupport, type AiOp, type Candidate } from "@/pixel/ai";
 import { composite } from "@/pixel/doc";
 import { pasteRegion } from "@/pixel/raster";
-import { usePixel, type ApplyTarget } from "@/pixel/store";
+import { usePixel, type AiPanelTab, type ApplyTarget } from "@/pixel/store";
 import { connectionLabel, provider } from "@/providers/registry";
 import { activeConnection, activeWorkflow, capabilitiesFor, useApp } from "@/store/app";
 
+import { PromptHelper } from "../PromptHelper";
 import { Button, Field, NumberInput, Segmented, Select, TextArea, cx, useFieldId } from "../ui";
+import { AgentPanel } from "./AgentPanel";
 import { PixelThumb } from "./PixelThumb";
 
 const RUN_LABEL: Record<AiOp, string> = { create: "Create sprite", edit: "Change area", vary: "Make variations" };
@@ -60,13 +62,16 @@ function PaletteChoice({
       {!keep && (
         <div className="flex items-center gap-2 text-[13px] text-fg-dim">
           <label htmlFor={colorsId}>Pick</label>
-          <Select id={colorsId} value={String(colors)} onChange={(e) => onChange({ colors: Number(e.target.value) })} className="h-7 w-20">
-            {COLOUR_COUNTS.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
+          {/* Fields are full width; the wrapper sets this one's width. */}
+          <span className="w-20 shrink-0">
+            <Select id={colorsId} value={String(colors)} onChange={(e) => onChange({ colors: Number(e.target.value) })} className="h-7">
+              {COLOUR_COUNTS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </span>
           <span>colours from the result</span>
         </div>
       )}
@@ -145,7 +150,40 @@ function CandidateCard({ candidate }: { candidate: Candidate }) {
   );
 }
 
+const PANELS: { value: AiPanelTab; label: string }[] = [
+  { value: "assistant", label: "Assistant" },
+  { value: "tools", label: "Image tools" },
+];
+
 export function AiPanel() {
+  const panel = usePixel((s) => s.aiPanel);
+  const setAiPanel = usePixel((s) => s.setAiPanel);
+  return (
+    <aside className="flex w-[320px] shrink-0 flex-col border-r border-line bg-panel" aria-label="AI">
+      <div role="tablist" aria-label="AI panel" className="flex h-10 shrink-0 items-stretch gap-1 border-b border-line px-3">
+        {PANELS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            role="tab"
+            aria-selected={panel === p.value}
+            onClick={() => setAiPanel(p.value)}
+            className={cx(
+              "relative px-2 text-[13.5px] transition-colors",
+              panel === p.value ? "font-medium text-fg" : "text-fg-dim hover:text-fg",
+            )}
+          >
+            {p.label}
+            {panel === p.value && <span className="absolute inset-x-2 bottom-0 h-0.5 bg-safelight" />}
+          </button>
+        ))}
+      </div>
+      {panel === "assistant" ? <AgentPanel /> : <ImageTools />}
+    </aside>
+  );
+}
+
+function ImageTools() {
   const connection = useApp(activeConnection);
   const workflow = useApp(activeWorkflow);
   const model = useApp((s) => s.form.model);
@@ -170,16 +208,16 @@ export function AiPanel() {
 
   if (!connection) {
     return (
-      <aside className="flex w-[320px] shrink-0 flex-col justify-center gap-3 border-r border-line bg-panel px-6">
-        <p className="text-fg">No backend connected yet.</p>
-        <p className="text-fg-dim">The AI tools use the same connections as Generate. You can still draw by hand.</p>
+      <div className="flex flex-1 flex-col justify-center gap-3 px-6">
+        <p className="text-fg">No image backend connected yet.</p>
+        <p className="text-fg-dim">The image tools use the same connections as Generate. You can still draw by hand, or ask the assistant.</p>
         <Link
           href="/connections"
           className="inline-flex h-8 items-center self-start rounded-[4px] bg-safelight px-3 font-semibold text-safelight-ink hover:bg-safelight-strong"
         >
           Add a connection
         </Link>
-      </aside>
+      </div>
     );
   }
 
@@ -188,7 +226,7 @@ export function AiPanel() {
   const promptLabel = tab === "create" ? "Sprite" : tab === "edit" ? "Change" : "Sprite and what to vary";
 
   return (
-    <aside className="flex w-[320px] shrink-0 flex-col border-r border-line bg-panel" aria-label="AI">
+    <>
       <div className="space-y-4 border-b border-line px-4 pb-4 pt-3">
         <Segmented
           label="AI tool"
@@ -201,7 +239,22 @@ export function AiPanel() {
           ]}
         />
 
-        <Field label={promptLabel} htmlFor={promptId}>
+        <Field
+          label={promptLabel}
+          htmlFor={promptId}
+          aside={
+            <PromptHelper
+              prompt={settings.prompt}
+              target={{
+                backend: provider(connection.kind).label,
+                model: model || (workflow ? workflow.name : provider(connection.kind).defaultModel(connection.config)),
+                negative: false,
+                purpose: tab === "edit" ? "sprite-edit" : "sprite",
+              }}
+              onChange={(next) => setAi(tab, { prompt: next.prompt })}
+            />
+          }
+        >
           <TextArea
             id={promptId}
             rows={4}
@@ -335,6 +388,6 @@ export function AiPanel() {
           </p>
         )}
       </div>
-    </aside>
+    </>
   );
 }

@@ -2,7 +2,7 @@ import { parseDataUri, sniffImageMime, toDataUri } from "@/lib/bytes";
 import { HttpError, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
 
 import { parseFalBilling } from "./credit";
-import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type SchemaProps } from "./schema-input";
+import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type ImageRefs, type SchemaProps } from "./schema-input";
 import type { ConnectionConfig, GeneratedImage, ProviderDefinition } from "./types";
 
 const QUEUE = "https://queue.fal.run";
@@ -111,6 +111,7 @@ export const fal: ProviderDefinition = {
     size: true,
     model: true,
     maxCount: 4,
+    references: 16,
     sizeStep: 8,
   }),
   defaultModel: (config) => config.model || "fal-ai/flux/dev",
@@ -155,13 +156,11 @@ export const fal: ProviderDefinition = {
       (params.mode === "img2img" ? config.img2imgModel || "fal-ai/flux/dev/image-to-image" : fal.defaultModel(config));
     const props = await inputSchema(model, ctx.signal);
 
-    const refs =
-      params.mode === "img2img"
-        ? {
-            init: params.initImage ? toDataUri(params.initImage.bytes, params.initImage.mime) : undefined,
-            mask: params.mask ? toDataUri(params.mask.bytes, params.mask.mime) : undefined,
-          }
-        : {};
+    const refs: ImageRefs = { references: params.references.map((r) => toDataUri(r.bytes, r.mime)) };
+    if (params.mode === "img2img") {
+      refs.init = params.initImage ? toDataUri(params.initImage.bytes, params.initImage.mime) : undefined;
+      refs.mask = params.mask ? toDataUri(params.mask.bytes, params.mask.mime) : undefined;
+    }
     if (params.mode === "img2img" && !refs.init) throw new Error("Add an input image for image to image.");
     const input = mergeExtraJson(mapToSchema(props, params, refs), params.options.extra);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Download, FolderOpen, ImageUp, RotateCcw, Star, Trash2 } from "lucide-react";
+import { Copy, Download, FolderOpen, ImageUp, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -23,6 +23,7 @@ export function ImageActionBar({
   const toggleFavorite = useApp((s) => s.toggleFavorite);
   const reuseSettings = useApp((s) => s.reuseSettings);
   const loadAsInput = useApp((s) => s.loadAsInput);
+  const loadAsReference = useApp((s) => s.loadAsReference);
   const removeImage = useApp((s) => s.removeImage);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const favorite = image.favorite;
@@ -69,6 +70,15 @@ export function ImageActionBar({
           toGenerate();
         }, "Image set as input")}>
         <ImageUp size={15} />
+      </IconButton>
+      <IconButton
+        label="Attach to the prompt as a reference"
+        onClick={run(async () => {
+          await loadAsReference(image);
+          toGenerate();
+        }, "Image attached to the prompt")}
+      >
+        <Paperclip size={15} />
       </IconButton>
       <IconButton
         label="Reuse these settings"

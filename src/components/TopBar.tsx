@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 
 import { isRoute } from "@/lib/routes";
 import { usePixel } from "@/pixel/store";
-import { connectionLabel } from "@/providers/registry";
+import { connectionLabel, isImageConnection } from "@/providers/registry";
 import { activeConnection, useApp } from "@/store/app";
 
 import { CreditBadge } from "./CreditBadge";
@@ -21,6 +22,8 @@ const TABS = [
 export function TopBar() {
   const pathname = usePathname();
   const connections = useApp((s) => s.connections);
+  // Only image backends; Claude connections serve the assistant.
+  const backends = useMemo(() => connections.filter(isImageConnection), [connections]);
   const active = useApp(activeConnection);
   const selectConnection = useApp((s) => s.selectConnection);
   const generating = useApp((s) => s.job?.status === "running");
@@ -54,7 +57,7 @@ export function TopBar() {
 
       <div className="ml-auto flex items-center gap-2">
         {active && <CreditBadge key={active.id} connection={active} />}
-        {connections.length > 0 ? (
+        {backends.length > 0 ? (
           <>
             <label htmlFor="active-connection" className="text-[13px] text-fg-faint">
               Backend
@@ -66,7 +69,7 @@ export function TopBar() {
               onChange={(e) => selectConnection(e.target.value)}
               className="h-7 max-w-64 rounded-[4px] border border-transparent bg-field px-2 text-[13px] text-fg hover:border-line focus:outline-none disabled:opacity-60"
             >
-              {connections.map((c) => (
+              {backends.map((c) => (
                 <option key={c.id} value={c.id}>
                   {connectionLabel(c.name, c.kind)}
                 </option>

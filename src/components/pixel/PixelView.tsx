@@ -21,7 +21,8 @@ function useShortcuts() {
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      if (mod && key === "enter") {
+      // In the assistant tab, Enter in the message box sends instead.
+      if (mod && key === "enter" && s.aiPanel === "tools") {
         e.preventDefault();
         void s.runAi();
         return;
