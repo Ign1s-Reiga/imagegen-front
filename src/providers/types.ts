@@ -1,8 +1,13 @@
 import type { Bytes } from "@/lib/bytes";
 
+import type { ChatService } from "./chat";
 import type { SavedWorkflow } from "./comfy-workflow";
 
-export type ProviderKind = "openai" | "comfyui" | "runpod" | "fal" | "replicate" | "a1111";
+/** Image backends: services that generate images. */
+export type ProviderKind = "openai" | "openrouter" | "comfyui" | "runpod" | "fal" | "replicate" | "a1111";
+
+/** Every kind of saved connection: the image backends plus chat-only services. */
+export type ConnectionKind = ProviderKind | "anthropic";
 
 export type Mode = "txt2img" | "img2img";
 
@@ -118,12 +123,27 @@ export interface ModelChoice {
   label?: string;
 }
 
-export interface ProviderDefinition {
-  kind: ProviderKind;
+/** What every connection kind declares: how it is set up, checked and billed. */
+export interface ServiceDefinition {
+  kind: ConnectionKind;
   label: string;
   /** One line shown when choosing a provider. */
   summary: string;
   fields: ConfigField[];
+  /** Resolves with a short human-readable status, rejects with the problem. */
+  testConnection: (config: ConnectionConfig, signal?: AbortSignal) => Promise<string>;
+  /**
+   * Account credit or spend. Resolves null when this connection is not set
+   * up to read it (e.g. no OpenAI admin key).
+   */
+  getCredit?: (config: ConnectionConfig, signal?: AbortSignal) => Promise<CreditInfo | null>;
+  /** Chat models, for the prompt helper and the pixel assistant. */
+  chat?: ChatService;
+}
+
+/** An image backend. */
+export interface ProviderDefinition extends ServiceDefinition {
+  kind: ProviderKind;
   options: OptionField[];
   capabilities: (config: ConnectionConfig, workflow?: SavedWorkflow | null) => Capabilities;
   /** Can run imported ComfyUI workflows. */
@@ -144,14 +164,7 @@ export interface ProviderDefinition {
     inputs: { classType: string; input: string }[],
     signal?: AbortSignal,
   ) => Promise<Record<string, string[]>>;
-  /** Resolves with a short human-readable status, rejects with the problem. */
-  testConnection: (config: ConnectionConfig, signal?: AbortSignal) => Promise<string>;
   generate: (params: GenerateParams, config: ConnectionConfig, ctx: RunContext) => Promise<GenerateResult>;
-  /**
-   * Account credit or spend. Resolves null when this connection is not set
-   * up to read it (e.g. no OpenAI admin key).
-   */
-  getCredit?: (config: ConnectionConfig, signal?: AbortSignal) => Promise<CreditInfo | null>;
 }
 
 export interface Money {
@@ -176,7 +189,10 @@ export interface CreditInfo {
 /** Saved connection. Secret fields are held in the keychain, not here. */
 export interface Connection {
   id: string;
-  kind: ProviderKind;
+  kind: ConnectionKind;
   name: string;
   config: ConnectionConfig;
 }
+
+/** A connection to an image backend. */
+export type ImageConnection = Connection & { kind: ProviderKind };

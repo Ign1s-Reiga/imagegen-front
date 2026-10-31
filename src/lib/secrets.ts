@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { Connection, ConnectionConfig } from "@/providers/types";
-import { provider } from "@/providers/registry";
+import { service } from "@/providers/registry";
 
 const secretKey = (connectionId: string, field: string) => `connection:${connectionId}:${field}`;
 
@@ -15,7 +15,7 @@ export const deleteSecret = (connectionId: string, field: string) =>
   invoke<void>("secret_delete", { key: secretKey(connectionId, field) });
 
 function secretFields(connection: Connection) {
-  return provider(connection.kind).fields.filter((f) => f.type === "secret");
+  return service(connection.kind).fields.filter((f) => f.type === "secret");
 }
 
 /** Saved config plus keychain secrets: what provider adapters receive. */

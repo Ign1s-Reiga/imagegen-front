@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { create } from "zustand";
 
 import { imageDimensions, sniffImageMime } from "@/lib/bytes";
@@ -17,7 +18,8 @@ import { isAbortError } from "@/lib/http";
 import { normalizeMask } from "@/lib/mask";
 import { midSentence } from "@/lib/text";
 import { deleteConnectionSecrets, deleteSecret, resolveConfig, setSecret } from "@/lib/secrets";
-import { loadSettings, saveSetting, type PersistedForm } from "@/lib/settings";
+import { loadSettings, saveSetting, type AssistantChoice, type PersistedForm } from "@/lib/settings";
+import type { ChatModel, ChatService } from "@/providers/chat";
 import {
   boundInput,
   detectBindings,
@@ -25,13 +27,14 @@ import {
   workflowDefaults,
   type SavedWorkflow,
 } from "@/providers/comfy-workflow";
-import { provider } from "@/providers/registry";
+import { chatService, isImageConnection, provider, service } from "@/providers/registry";
 import type {
   Capabilities,
   Connection,
   CreditInfo,
   GenerateParams,
   GeneratedImage,
+  ImageConnection,
   InputImage,
   Mode,
   ModelChoice,
@@ -92,6 +95,12 @@ interface Choices {
   error?: string;
 }
 
+export interface ChatModelsState {
+  models?: ChatModel[];
+  loading?: boolean;
+  error?: string;
+}
+
 /** Fields remembered per connection; everything else is shared. */
 const PER_CONNECTION = ["model", "steps", "cfg", "sampler", "scheduler", "options"] as const;
 const GLOBAL_KEY = "_global";
@@ -130,8 +139,13 @@ interface AppState {
   /** Bumped whenever the gallery contents change. */
   galleryVersion: number;
   notice: string | null;
+  /** Chat model for the prompt helper and the pixel assistant; null picks the first one available. */
+  assistant: AssistantChoice | null;
+  chatModels: Record<string, ChatModelsState>;
 
   init(): Promise<void>;
+  setAssistant(choice: AssistantChoice): void;
+  loadChatModels(connectionId: string): Promise<void>;
   setForm(patch: Partial<FormState>): void;
   selectConnection(id: string): void;
   saveConnection(connection: Connection, secrets: Record<string, string | null>): Promise<void>;
@@ -162,8 +176,33 @@ interface AppState {
 
 type Selectable = Pick<AppState, "connections" | "activeConnectionId" | "workflows" | "form">;
 
-export const activeConnection = (s: Pick<AppState, "connections" | "activeConnectionId">) =>
-  s.connections.find((c) => c.id === s.activeConnectionId) ?? null;
+/** The image backend in use. Chat-only connections (Claude) are never active. */
+export const activeConnection = (s: Pick<AppState, "connections" | "activeConnectionId">): ImageConnection | null => {
+  const connection = s.connections.find((c) => c.id === s.activeConnectionId);
+  return connection && isImageConnection(connection) ? connection : null;
+};
+
+export interface Assistant {
+  connection: Connection;
+  chat: ChatService;
+  model: string;
+}
+
+/** The saved assistant choice, or else the first connection that has chat models. */
+export function assistantFor(s: Pick<AppState, "connections" | "assistant">): Assistant | null {
+  const candidates = s.connections.filter((c) => chatService(c));
+  const chosen = candidates.find((c) => c.id === s.assistant?.connectionId) ?? candidates[0];
+  if (!chosen) return null;
+  const chat = chatService(chosen)!;
+  const model = (chosen.id === s.assistant?.connectionId && s.assistant.model.trim()) || chat.defaultModel;
+  return { connection: chosen, chat, model };
+}
+
+export function useAssistant(): Assistant | null {
+  const connections = useApp((s) => s.connections);
+  const assistant = useApp((s) => s.assistant);
+  return useMemo(() => assistantFor({ connections, assistant }), [connections, assistant]);
+}
 
 /** The imported workflow selected for the active connection, if any. */
 export const activeWorkflow = (s: Selectable) => {
@@ -173,7 +212,7 @@ export const activeWorkflow = (s: Selectable) => {
   return id ? (s.workflows.find((w) => w.id === id) ?? null) : null;
 };
 
-export function capabilitiesFor(connection: Connection | null, workflow: SavedWorkflow | null): Capabilities | null {
+export function capabilitiesFor(connection: ImageConnection | null, workflow: SavedWorkflow | null): Capabilities | null {
   return connection ? provider(connection.kind).capabilities(connection.config, workflow) : null;
 }
 
@@ -200,7 +239,7 @@ const defined = <T extends object>(obj: T) =>
 
 /** Form for a connection: base, then provider defaults, then what was last used. */
 function formFor(
-  connection: Connection | null,
+  connection: ImageConnection | null,
   forms: Record<string, Partial<PersistedForm>>,
   current: FormState,
 ): FormState {
@@ -252,7 +291,7 @@ export const useApp = create<AppState>()((set, get) => {
   };
 
   /** Loads combo choices for the inputs an imported workflow exposes. */
-  const loadWorkflowChoices = async (connection: Connection, workflow: SavedWorkflow) => {
+  const loadWorkflowChoices = async (connection: ImageConnection, workflow: SavedWorkflow) => {
     const def = provider(connection.kind);
     if (!def.listInputChoices) return;
     const wanted = workflow.bindings
@@ -289,12 +328,14 @@ export const useApp = create<AppState>()((set, get) => {
     credits: {},
     galleryVersion: 0,
     notice: null,
+    assistant: null,
+    chatModels: {},
 
     async init() {
       if (get().ready) return;
       const settings = await loadSettings();
-      const active =
-        settings.connections.find((c) => c.id === settings.activeConnectionId) ?? settings.connections[0] ?? null;
+      const backends = settings.connections.filter(isImageConnection);
+      const active = backends.find((c) => c.id === settings.activeConnectionId) ?? backends[0] ?? null;
       const base: FormState = { ...BASE_FORM, ...settings.forms[GLOBAL_KEY] };
       const recent = await listGenerations({ limit: 40 }).catch(() => []);
       set({
@@ -304,12 +345,34 @@ export const useApp = create<AppState>()((set, get) => {
         forms: settings.forms,
         form: formFor(active, settings.forms, base),
         workflows: settings.workflows,
+        assistant: settings.assistant,
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,
       });
       if (active) {
         void get().loadChoices(active.id);
         void get().loadCredit(active.id);
+      }
+    },
+
+    setAssistant(choice) {
+      set({ assistant: choice });
+      void saveSetting("assistant", choice);
+    },
+
+    async loadChatModels(connectionId) {
+      const connection = get().connections.find((c) => c.id === connectionId);
+      const chat = connection && chatService(connection);
+      const current = get().chatModels[connectionId];
+      if (!connection || !chat || current?.loading || current?.models) return;
+      const update = (patch: ChatModelsState) =>
+        set((s) => ({ chatModels: { ...s.chatModels, [connectionId]: { ...s.chatModels[connectionId], ...patch } } }));
+      update({ loading: true, error: undefined });
+      try {
+        const models = await chat.listModels(await resolveConfig(connection), AbortSignal.timeout(20_000));
+        update({ models, loading: false });
+      } catch (err) {
+        update({ loading: false, error: errorMessage(err) });
       }
     },
 
@@ -320,7 +383,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     selectConnection(id) {
       const connection = get().connections.find((c) => c.id === id) ?? null;
-      if (!connection) return;
+      if (!connection || !isImageConnection(connection)) return;
       const forms = flushForm();
       set({ activeConnectionId: id, form: formFor(connection, forms, get().form) });
       void saveSetting("activeConnectionId", id);
@@ -341,10 +404,12 @@ export const useApp = create<AppState>()((set, get) => {
         connections,
         choices: { ...get().choices, [connection.id]: {} },
         credits: { ...get().credits, [connection.id]: {} },
+        chatModels: { ...get().chatModels, [connection.id]: {} },
       });
       await saveSetting("connections", connections);
       void get().loadCredit(connection.id, { force: true });
-      if (!get().activeConnectionId || existing.length === 0) get().selectConnection(connection.id);
+      if (!isImageConnection(connection)) return;
+      if (!activeConnection(get())) get().selectConnection(connection.id);
       else if (get().activeConnectionId === connection.id) void get().loadChoices(connection.id);
     },
 
@@ -360,8 +425,12 @@ export const useApp = create<AppState>()((set, get) => {
       set({ connections, forms, credits });
       await saveSetting("connections", connections);
       await saveSetting("forms", forms);
+      if (get().assistant?.connectionId === id) {
+        set({ assistant: null });
+        await saveSetting("assistant", null);
+      }
       if (get().activeConnectionId === id) {
-        const next = connections[0];
+        const next = connections.find(isImageConnection);
         if (next) get().selectConnection(next.id);
         else {
           set({ activeConnectionId: null });
@@ -372,7 +441,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     async loadChoices(connectionId) {
       const connection = get().connections.find((c) => c.id === connectionId);
-      if (!connection) return;
+      if (!connection || !isImageConnection(connection)) return;
       const def = provider(connection.kind);
       const update = (patch: Choices) =>
         set((s) => ({ choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], ...patch } } }));
@@ -401,7 +470,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     async loadCredit(connectionId, { force = false } = {}) {
       const connection = get().connections.find((c) => c.id === connectionId);
-      const def = connection && provider(connection.kind);
+      const def = connection && service(connection.kind);
       if (!connection || !def?.getCredit) return;
       const current = get().credits[connectionId];
       if (current?.loading) return;
