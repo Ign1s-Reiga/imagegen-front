@@ -1,17 +1,16 @@
 "use client";
 
 import { Paperclip, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 
-import { bytesToObjectUrl } from "@/lib/bytes";
+import { useImageUrl } from "@/lib/use-image-url";
 import type { InputImage } from "@/providers/types";
 import { useApp } from "@/store/app";
 
 import { IconButton, cx } from "../ui";
 
 function Thumb({ image, index, onRemove }: { image: InputImage; index: number; onRemove: () => void }) {
-  const url = useMemo(() => bytesToObjectUrl(image.bytes, image.mime), [image]);
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const url = useImageUrl(image.bytes, image.mime) ?? undefined;
   return (
     <li className="group relative size-14 shrink-0" title={`${image.name}, ${image.width} × ${image.height}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}

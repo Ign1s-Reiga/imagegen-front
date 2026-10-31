@@ -1,10 +1,10 @@
 "use client";
 
 import { FlipHorizontal2, Trash2, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 
-import { bytesToObjectUrl } from "@/lib/bytes";
 import { maskFromAlpha, maskToAlpha } from "@/lib/mask";
+import { useImageUrl } from "@/lib/use-image-url";
 import type { InputImage } from "@/providers/types";
 
 import { Button, IconButton, Segmented } from "../ui";
@@ -40,8 +40,7 @@ export function MaskEditor({
   const [canUndo, setCanUndo] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const imageUrl = useMemo(() => bytesToObjectUrl(image.bytes, image.mime), [image]);
-  useEffect(() => () => URL.revokeObjectURL(imageUrl), [imageUrl]);
+  const imageUrl = useImageUrl(image.bytes, image.mime);
 
   const ctx = () => canvasRef.current?.getContext("2d", { willReadFrequently: true }) ?? null;
 
@@ -260,7 +259,7 @@ export function MaskEditor({
         {display && (
           <div className="relative" style={{ width: display.width, height: display.height }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imageUrl} alt="Input image" className="block size-full select-none" draggable={false} />
+            {imageUrl && <img src={imageUrl} alt="Input image" className="block size-full select-none" draggable={false} />}
             <canvas
               ref={canvasRef}
               width={image.width}
