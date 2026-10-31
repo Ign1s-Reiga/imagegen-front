@@ -30,6 +30,53 @@ export function packedToHex(c: Packed): string {
   return `#${v.toString(16).padStart(6, "0")}`;
 }
 
+/** Typed hex ("#rgb", "rrggbb", ...) to "#rrggbb", or null when it isn't a colour. */
+export function parseHex(text: string): string | null {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text.trim());
+  if (!m) return null;
+  const digits = m[1].length === 3 ? [...m[1]].map((d) => d + d).join("") : m[1];
+  return `#${digits.toLowerCase()}`;
+}
+
+export const rgbToHex = (r: number, g: number, b: number) => packedToHex(pack(r, g, b));
+
+export const hexToRgb = (hex: string): [number, number, number] => {
+  const c = hexToPacked(hex);
+  return [red(c), green(c), blue(c)];
+};
+
+/** Hue in degrees (0..360), saturation and value 0..1. */
+export interface Hsv {
+  h: number;
+  s: number;
+  v: number;
+}
+
+/**
+ * sRGB (0..255) to HSV. Greys have no hue and black has no saturation, so
+ * those come from `previous` when given: dragging to black and back keeps the colour.
+ */
+export function rgbToHsv(r: number, g: number, b: number, previous?: Hsv): Hsv {
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = previous?.h ?? 0;
+  if (d > 0) {
+    if (max === r) h = 60 * (((g - b) / d + 6) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  const s = max === 0 ? (previous?.s ?? 0) : d / max;
+  return { h, s, v: max / 255 };
+}
+
+export function hsvToRgb({ h, s, v }: Hsv): [number, number, number] {
+  const channel = (n: number) => {
+    const k = (n + h / 60) % 6;
+    return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))));
+  };
+  return [channel(5), channel(3), channel(1)];
+}
+
 const toLinear = (c: number) => {
   const v = c / 255;
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;

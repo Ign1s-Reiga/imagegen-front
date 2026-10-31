@@ -75,6 +75,8 @@ Models draw "pixel art" with soft, uneven fake pixels, so every result is snappe
 
 Tools: pencil (B), eraser (E), fill (G), pick colour (I, or Alt click), line (L), rectangle (U), select (M), move (V), mirror left/right and top/bottom. Right click draws with the secondary colour. Ctrl Z / Ctrl Shift Z undo and redo, Ctrl A / Esc select all or nothing, Delete clears the selection, `[` `]` brush size, X swaps colours, `,` `.` step frames, Enter plays, Space drag or middle drag pans, the wheel zooms, 0 fits. Ctrl Enter runs the AI tool, Ctrl S saves.
 
+The *Colour* panel edits the primary or secondary colour (click a swatch to pick which): drag on the saturation/value area and the hue strip, or type HSV, RGB or hex (`#48c` shorthand works). Arrow keys step the area, the strip and the fields, ten at a time with Shift. Double click a palette swatch to edit it the same way.
+
 The sprite is kept between sessions automatically (`pixel.json` in the app data folder). *Save* writes a `.pixel` project file (JSON with every layer and frame); *Open* reads those or a PNG/GIF/WebP up to 256×256; *Export* writes the current frame or a sprite sheet as PNG at 1× to 16×. The save dialog runs in Rust, so the webview never picks the path it writes to.
 
 ## ComfyUI workflows

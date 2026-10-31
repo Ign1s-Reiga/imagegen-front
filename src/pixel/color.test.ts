@@ -6,11 +6,16 @@ import {
   PaletteMatcher,
   alpha,
   hexToPacked,
+  hexToRgb,
+  hsvToRgb,
   keyColorFor,
   kmeansPalette,
   oklabToRgb,
   pack,
   packedToHex,
+  parseHex,
+  rgbToHex,
+  rgbToHsv,
   rgbToOklab,
   usedColors,
 } from "./color.ts";
@@ -22,6 +27,48 @@ test("packing matches ImageData's little-endian Uint32 view", () => {
   assert.equal(hexToPacked("12345680"), pack(0x12, 0x34, 0x56, 0x80));
   assert.equal(packedToHex(pack(0xab, 0x0c, 0xff, 3)), "#ab0cff");
   assert.equal(hexToPacked("not a colour"), 0);
+});
+
+test("typed hex is normalised or rejected", () => {
+  assert.equal(parseHex("#4A82CC"), "#4a82cc");
+  assert.equal(parseHex(" 4a82cc "), "#4a82cc");
+  assert.equal(parseHex("#f0a"), "#ff00aa");
+  assert.equal(parseHex("fa"), null);
+  assert.equal(parseHex("#4a82cg"), null);
+  assert.equal(parseHex("#4a82cc80"), null, "alpha is not part of a palette colour");
+  assert.deepEqual(hexToRgb("#4a82cc"), [0x4a, 0x82, 0xcc]);
+  assert.equal(rgbToHex(0x4a, 0x82, 0xcc), "#4a82cc");
+});
+
+test("HSV matches known colours", () => {
+  const cases: [[number, number, number], [number, number, number]][] = [
+    [[255, 0, 0], [0, 1, 1]],
+    [[0, 255, 0], [120, 1, 1]],
+    [[0, 0, 255], [240, 1, 1]],
+    [[255, 0, 128], [329.88, 1, 1]],
+    [[128, 128, 128], [0, 0, 0.502]],
+    [[74, 130, 204], [214.15, 0.637, 0.8]],
+  ];
+  for (const [rgb, [h, s, v]] of cases) {
+    const hsv = rgbToHsv(...rgb);
+    assert.ok(Math.abs(hsv.h - h) < 0.01 && Math.abs(hsv.s - s) < 0.001 && Math.abs(hsv.v - v) < 0.001, `${rgb}: ${JSON.stringify(hsv)}`);
+  }
+});
+
+test("HSV round-trips every channel value", () => {
+  for (let i = 0; i < 256; i += 3) {
+    for (const rgb of [[i, 0, 255 - i], [255, i, 40], [i, i, i], [17, 200, i]] as [number, number, number][]) {
+      assert.deepEqual(hsvToRgb(rgbToHsv(...rgb)), rgb);
+    }
+  }
+  assert.deepEqual(hsvToRgb({ h: 360, s: 1, v: 1 }), [255, 0, 0], "360° wraps to red");
+});
+
+test("HSV keeps hue and saturation where the colour has none", () => {
+  const previous = { h: 200, s: 0.6, v: 0.7 };
+  assert.deepEqual(rgbToHsv(0, 0, 0, previous), { h: 200, s: 0.6, v: 0 });
+  assert.deepEqual(rgbToHsv(90, 90, 90, previous), { h: 200, s: 0, v: 90 / 255 });
+  assert.equal(rgbToHsv(0, 0, 0).h, 0);
 });
 
 test("OKLab round-trips sRGB", () => {
