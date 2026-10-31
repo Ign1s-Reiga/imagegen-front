@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Rust build output is huge and locked while cargo writes it; scanning it can crash the dev server. */
+@source not "../../src-tauri";
+
 /*
  * Chrome is strictly neutral grey so it never colour-casts the images being
  * judged. Amber (a darkroom safelight) is reserved for "primary" and "running".
