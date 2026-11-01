@@ -163,13 +163,17 @@ export function ParamsPanel() {
   const workflowId = useFieldId("workflow");
 
   // Which per-model options (such as OpenRouter's moderation) the chosen model
-  // takes. Only ids in the backend's model list are looked up, so a partly
-  // typed name ("openai/gpt") costs no request and leaves nothing cached.
+  // takes. An id in the backend's model list is looked up at once. Any other
+  // (typed by hand, or before the list loads) waits for typing to pause, so a
+  // partly typed name ("openai/gpt") is not looked up; a failed lookup is not
+  // kept, so nothing is left behind for it either.
   const optionModel = connection ? form.model.trim() || provider(connection.kind).defaultModel(connection.config) : "";
   const knownModel = Boolean(optionModel) && (choices?.models?.some((m) => m.value === optionModel) ?? false);
   const connectionId = connection?.id;
   useEffect(() => {
-    if (connectionId && knownModel) void loadModelOptions(connectionId, optionModel);
+    if (!connectionId || !optionModel) return;
+    const timer = setTimeout(() => void loadModelOptions(connectionId, optionModel), knownModel ? 0 : 800);
+    return () => clearTimeout(timer);
   }, [connectionId, optionModel, knownModel, loadModelOptions]);
 
   if (!connection) {
