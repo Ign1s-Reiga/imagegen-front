@@ -145,7 +145,10 @@ export function GalleryView() {
           error: null,
         }),
       )
-      .catch((err) => done({ ...prev, key: requestKey, listKey, error: String(err) }));
+      // Keep only what belongs to this list: after a new search or filter fails, the
+      // old query's images must not show under it. When a later page failed, the
+      // pages already loaded stay, and Show more stays to try again.
+      .catch((err) => done({ key: requestKey, listKey, generations: kept, hasMore: from > 0, error: String(err) }));
     return () => {
       cancelled = true;
     };
