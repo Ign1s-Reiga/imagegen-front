@@ -37,7 +37,7 @@ interface ModelsResponse {
   }[];
 }
 
-/** How long a generation waits for the model list before going out unfitted. */
+/** How long a generation waits for the model list or a model's endpoints before going on without them. */
 const MODEL_LIST_TIMEOUT_MS = 15_000;
 
 /** Options the user picks that a model may not take, with the names shown for them. */
@@ -46,28 +46,30 @@ const USER_SETTINGS = [
   ["background", "Background"],
 ] as const;
 
-/** Each image model's supported parameters, per API base; read once a session. */
-const imageParams = new Map<string, Promise<Map<string, SupportedImageParams>>>();
+/** The image model list, per URL; read once a session. */
+const imageParams = new Map<string, Promise<ModelsResponse>>();
 
-async function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
-  const key = base(config);
-  let models = imageParams.get(key);
-  if (!models) {
-    // Shared by every run waiting on it, so no run's abort signal goes on it:
-    // one cancel would otherwise fail the read for all of them, and they would
-    // go out unfitted. A timeout instead, so a read that never answers cannot
-    // hold up every generation for the rest of the session.
-    const signal = AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS);
-    models = httpJson<ModelsResponse>(`${key}/images/models`, request(config, { signal })).then(
-      (list) => new Map((list.data ?? []).flatMap((m) => (m.supported_parameters ? [[m.id, m.supported_parameters]] : []))),
-    );
-    imageParams.set(key, models);
-    // A failed read is tried again next time rather than kept.
-    models.catch(() => imageParams.delete(key));
+/**
+ * Reads `url` once and shares the result through `cache` with every run that
+ * asks for it. No run's abort signal goes on the request: one cancel would fail
+ * it for all of them. A timeout instead, so a read that never answers cannot
+ * hold up every generation for the rest of the session; a failed read is
+ * dropped from the cache and tried again next time. Each run stops waiting on
+ * its own cancel. Resolves to undefined when the read fails.
+ */
+async function sharedRead<T>(
+  cache: Map<string, Promise<T>>,
+  url: string,
+  config: ConnectionConfig,
+  signal: AbortSignal,
+): Promise<T | undefined> {
+  let pending = cache.get(url);
+  if (!pending) {
+    pending = httpJson<T>(url, request(config, { signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS) }));
+    cache.set(url, pending);
+    pending.catch(() => cache.delete(url));
   }
-  // Without the list the request goes out unfitted, as before.
-  const found = models.then((m) => m.get(model)).catch(() => undefined);
-  // This run alone stops waiting when it is cancelled.
+  const found = pending.catch(() => undefined);
   let stop = () => {};
   const aborted = new Promise<never>((_, reject) => {
     const onAbort = () => reject(abortError());
@@ -80,6 +82,28 @@ async function imageParamsFor(config: ConnectionConfig, model: string, signal: A
   } finally {
     stop();
   }
+}
+
+/** A model's supported parameters; undefined when the list cannot be read (the request then goes out unfitted). */
+async function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
+  const list = await sharedRead(imageParams, `${base(config)}/images/models`, config, signal);
+  return list?.data?.find((m) => m.id === model)?.supported_parameters;
+}
+
+interface EndpointsResponse {
+  endpoints?: { provider_slug?: string; allowed_passthrough_parameters?: string[] }[];
+}
+
+/** Each model's provider endpoints, per URL; read once a session, and only when an option needs them. */
+const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
+
+/** The model's providers that accept `parameter` passed through to them, by slug. */
+async function passthroughProviders(config: ConnectionConfig, model: string, parameter: string, signal: AbortSignal) {
+  const url = `${base(config)}/images/models/${model}/endpoints`;
+  const found = await sharedRead(imageEndpoints, url, config, signal);
+  return (found?.endpoints ?? []).flatMap((e) =>
+    e.provider_slug && e.allowed_passthrough_parameters?.includes(parameter) ? [e.provider_slug] : [],
+  );
 }
 
 interface ImagesResponse {
@@ -179,6 +203,14 @@ export const openrouter: ProviderDefinition = {
       options: ["auto", "opaque", "transparent"].map((v) => ({ value: v, label: v })),
       help: "Only some models can make transparent backgrounds.",
     },
+    {
+      key: "moderation",
+      label: "Moderation",
+      type: "select",
+      default: "auto",
+      options: ["auto", "low"].map((v) => ({ value: v, label: v })),
+      help: "Low is less strict. Sent only to providers that accept it (OpenAI's models); others leave it out.",
+    },
   ],
   capabilities: () => ({
     img2img: true,
@@ -263,6 +295,14 @@ export const openrouter: ProviderDefinition = {
     }
     // Models reject parameters they do not take, such as a seed on FLUX 3 Image.
     const fitted = fitImageBody(body, supported);
+    // Moderation is not an image parameter but a pass-through some providers
+    // accept, so it goes in provider.options for those only.
+    if (o.moderation && o.moderation !== "auto") {
+      const slugs = await passthroughProviders(config, model, "moderation", ctx.signal);
+      if (slugs.length) {
+        fitted.body.provider = { options: Object.fromEntries(slugs.map((slug) => [slug, { moderation: o.moderation }])) };
+      }
+    }
     const seeded = "seed" in fitted.body;
     const seedOf = (i: number) => fitSeed(params.seed + i, supported?.seed);
 
