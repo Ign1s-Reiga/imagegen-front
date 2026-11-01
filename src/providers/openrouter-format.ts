@@ -208,10 +208,14 @@ export function fitImageBody(
 /**
  * A seed the model accepts: wrapped into the range it lists, or into 32 bits
  * when it lists none. Wrapped rather than clamped, so seeds past the end stay
- * distinct instead of all becoming the maximum.
+ * distinct instead of all becoming the maximum. A range without whole-number
+ * bounds, or with min above max, counts as none: it would otherwise give NaN,
+ * which goes out as "seed": null.
  */
 export function fitSeed(seed: number, spec: ImageParamSpec | undefined): number {
-  const [min, max] = spec?.type === "range" ? [spec.min, spec.max] : [0, 2 ** 32 - 1];
+  const usable =
+    spec?.type === "range" && Number.isSafeInteger(spec.min) && Number.isSafeInteger(spec.max) && spec.min <= spec.max;
+  const [min, max] = usable ? [spec.min, spec.max] : [0, 2 ** 32 - 1];
   const span = max - min + 1;
   return min + ((((seed - min) % span) + span) % span);
 }
