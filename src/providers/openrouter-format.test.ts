@@ -182,8 +182,10 @@ test("modelPath encodes a model id and refuses what is not one", () => {
 });
 
 test("isProviderSlug accepts provider slugs only", () => {
-  for (const slug of ["openai", "black-forest-labs", "google-vertex", "z.ai"]) assert.ok(isProviderSlug(slug), slug);
-  for (const slug of ["", "__proto__", "Prototype", "-x", "a/b"]) assert.ok(!isProviderSlug(slug), slug);
+  // All seen in GET /images/models/{model}/endpoints.
+  const real = ["openai", "black-forest-labs", "black-forest-labs/us-3", "google-vertex/global", "google-ai-studio/global/flex"];
+  for (const slug of [...real, "z.ai"]) assert.ok(isProviderSlug(slug), slug);
+  for (const slug of ["", "__proto__", "Prototype", "-x", "a//b", "a/", "/a", "a/../b"]) assert.ok(!isProviderSlug(slug), slug);
 });
 
 test("fitSeed treats a malformed range as none", () => {
