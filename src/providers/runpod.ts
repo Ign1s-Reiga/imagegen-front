@@ -150,12 +150,15 @@ export const runpod: ProviderDefinition = {
         method: "POST",
         body: JSON.stringify({ input: { workflow, ...(images.length ? { images } : {}) } }),
         headers: { "Content-Type": "application/json" },
-        signal: ctx.signal,
+        // No abort signal: a submit cut off mid-flight may still have queued the
+        // job, with no id left to cancel it by. A cancel is handled once it returns.
       }),
     );
 
     const cancel = () =>
       void http(`${endpointUrl(config)}/cancel/${job.id}`, request(config, { method: "POST" })).catch(() => {});
+    if (ctx.signal.aborted) cancel();
+    ctx.signal.throwIfAborted();
     ctx.signal.addEventListener("abort", cancel, { once: true });
 
     try {

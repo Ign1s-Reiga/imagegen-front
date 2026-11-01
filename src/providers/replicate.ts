@@ -101,7 +101,6 @@ async function createPrediction(
   model: string,
   versionId: string | undefined,
   input: Record<string, unknown>,
-  signal: AbortSignal,
 ): Promise<Prediction> {
   const post = (url: string, body: unknown) =>
     httpJson<Prediction>(
@@ -110,7 +109,8 @@ async function createPrediction(
         method: "POST",
         body: JSON.stringify(body),
         headers: { "Content-Type": "application/json", Prefer: "wait=5" },
-        signal,
+        // No abort signal: a submit cut off mid-flight may still have queued the
+        // job, with no id left to cancel it by. A cancel is handled once it returns.
       }),
     );
   const { owner, name, version } = parseModel(model);
@@ -196,8 +196,10 @@ export const replicate: ProviderDefinition = {
     }
     const input = mergeExtraJson(mapToSchema(props, params, refs), params.options.extra);
 
-    let prediction = await createPrediction(config, model, versionId, input, ctx.signal);
+    let prediction = await createPrediction(config, model, versionId, input);
     const cancel = () => void http(prediction.urls.cancel, request(config, { method: "POST" })).catch(() => {});
+    if (ctx.signal.aborted) cancel();
+    ctx.signal.throwIfAborted();
     ctx.signal.addEventListener("abort", cancel, { once: true });
 
     try {

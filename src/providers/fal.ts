@@ -171,10 +171,13 @@ export const fal: ProviderDefinition = {
         method: "POST",
         body: JSON.stringify(input),
         headers: { "Content-Type": "application/json" },
-        signal: ctx.signal,
+        // No abort signal: a submit cut off mid-flight may still have queued the
+        // job, with no id left to cancel it by. A cancel is handled once it returns.
       }),
     );
     const cancel = () => void http(submit.cancel_url, request(config, { method: "PUT" })).catch(() => {});
+    if (ctx.signal.aborted) cancel();
+    ctx.signal.throwIfAborted();
     ctx.signal.addEventListener("abort", cancel, { once: true });
 
     try {
