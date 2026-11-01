@@ -6,6 +6,7 @@ import {
   INVALID_JSON,
   fitImageBody,
   fitSeed,
+  modelPath,
   passthroughOptions,
   fromOpenRouterCompletion,
   nearestAspectRatio,
@@ -176,4 +177,13 @@ test("passthroughOptions routes each option to the providers that list it", () =
   });
   // Unknown providers: nothing is sent, and the caller says so.
   assert.deepEqual(passthroughOptions({ moderation: "low" }, undefined), { options: undefined, unsent: ["moderation"] });
+});
+
+test("modelPath encodes a model id and refuses what is not one", () => {
+  assert.equal(modelPath("openai/gpt-image-2.5-flare"), "openai/gpt-image-2.5-flare");
+  assert.equal(modelPath("openai/gpt-image-1?x=1"), "openai/gpt-image-1%3Fx%3D1");
+  assert.equal(modelPath("a b/c#d"), "a%20b/c%23d");
+  for (const bad of ["", "openai/", "/key", "../key", "openai/../../key", "openai/./x"]) {
+    assert.equal(modelPath(bad), null, bad);
+  }
 });

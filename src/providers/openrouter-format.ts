@@ -241,6 +241,17 @@ export function passthroughOptions(
   return { options: Object.keys(options).length ? options : undefined, unsent };
 }
 
+/**
+ * A model id ("owner/name") as URL path segments, each encoded; null when it
+ * is not one. The id is typed freely in the Model field, and without this a
+ * "?", "#" or ".." in it would change which OpenRouter URL the key goes to.
+ */
+export function modelPath(model: string): string | null {
+  const segments = model.split("/");
+  if (segments.some((s) => !s || s === "." || s === "..")) return null;
+  return segments.map(encodeURIComponent).join("/");
+}
+
 const usd = (amount: unknown) => (typeof amount === "number" && Number.isFinite(amount) ? { amount, currency: "USD" } : undefined);
 
 /** GET /key (month spend) and, with a management key, GET /credits (balance). */
