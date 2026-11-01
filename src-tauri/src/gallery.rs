@@ -17,9 +17,9 @@ use tauri::{
     AppHandle, Manager, State, WebviewWindow,
     ipc::{InvokeBody, Request},
 };
-use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{Error, Result};
+use crate::files;
 
 const SCHEMA: &str = r#"
 PRAGMA journal_mode = WAL;
@@ -473,7 +473,7 @@ pub async fn gallery_read_image(
 }
 
 /// Asks where to save a stored image, then copies it there. The dialog runs
-/// here, as in `files::save_file`, so the webview never chooses the
+/// in Rust (`files::ask_save_path`), so the webview never chooses the
 /// destination. Returns the chosen path, or `None` when the dialog was closed.
 #[tauri::command]
 pub async fn gallery_export_image(
@@ -488,19 +488,11 @@ pub async fn gallery_export_image(
         .and_then(|ext| ext.to_str())
         .unwrap_or("png")
         .to_owned();
-    let Some(path) = window
-        .dialog()
-        .file()
-        .set_parent(&window)
-        .set_file_name(format!("{suggested_name}.{ext}"))
-        .add_filter("Image", &[ext.as_str()])
-        .blocking_save_file()
-    else {
+    let name = format!("{suggested_name}.{ext}");
+    let filter = Some(("Image".to_owned(), ext));
+    let Some(path) = files::ask_save_path(&window, Some(name), filter).await? else {
         return Ok(None);
     };
-    let path = path
-        .into_path()
-        .map_err(|err| Error::msg(err.to_string()))?;
     fs::copy(gallery.path_of(&file_name), &path)?;
     Ok(Some(path_string(&path)))
 }
