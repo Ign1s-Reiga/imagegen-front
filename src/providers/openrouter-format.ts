@@ -126,11 +126,11 @@ export function fromOpenRouterCompletion(json: OpenRouterCompletion, requestedMo
 const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "9:21", "21:9"];
 
 /** The supported aspect ratio closest to width:height. */
-export function nearestAspectRatio(width: number, height: number): string {
+export function nearestAspectRatio(width: number, height: number, ratios: readonly string[] = RATIOS): string {
   const target = Math.log(width / height);
-  let best = RATIOS[0];
+  let best = ratios[0];
   let distance = Infinity;
-  for (const ratio of RATIOS) {
+  for (const ratio of ratios) {
     const [a, b] = ratio.split(":").map(Number);
     const d = Math.abs(Math.log(a / b) - target);
     if (d < distance) {
@@ -147,6 +147,62 @@ export function resolutionTier(width: number, height: number): string {
   if (side <= 1280) return "1K";
   if (side <= 2560) return "2K";
   return "4K";
+}
+
+/** One entry of a model's `supported_parameters` in GET /images/models. */
+export type ImageParamSpec =
+  | { type: "enum"; values: string[] }
+  | { type: "range"; min: number; max: number }
+  | { type: "boolean" };
+
+export type SupportedImageParams = Record<string, ImageParamSpec>;
+
+/** Pixels on the long side for a resolution value such as "768", "1K" or "1.5K". */
+const tierPixels = (value: string) => (/k$/i.test(value) ? parseFloat(value) * 1024 : parseFloat(value));
+
+/**
+ * Fits an /images request body to what the model says it accepts. Parameters
+ * it does not list are dropped (OpenRouter rejects them with a 400), and an
+ * aspect ratio or resolution it lacks is swapped for its nearest one. Without
+ * a list (the model is unknown) the body is sent as it is.
+ */
+export function fitImageBody(
+  body: Record<string, unknown>,
+  supported: SupportedImageParams | undefined,
+): { body: Record<string, unknown>; dropped: string[] } {
+  if (!supported) return { body, dropped: [] };
+  const out: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(body)) {
+    if (key === "model" || key === "prompt") {
+      out[key] = value;
+      continue;
+    }
+    const spec = supported[key];
+    if (!spec) {
+      dropped.push(key);
+      continue;
+    }
+    if (spec.type !== "enum" || typeof value !== "string" || spec.values.includes(value)) {
+      out[key] = value;
+      continue;
+    }
+    if (key === "aspect_ratio") {
+      const ratios = spec.values.filter((v) => /^\d+:\d+$/.test(v));
+      const [w, h] = value.split(":").map(Number);
+      if (ratios.length && w && h) out[key] = nearestAspectRatio(w, h, ratios);
+      else dropped.push(key);
+    } else if (key === "resolution") {
+      const wanted = tierPixels(value);
+      const tiers = spec.values.filter((v) => Number.isFinite(tierPixels(v))).sort((a, b) => tierPixels(a) - tierPixels(b));
+      const fit = tiers.find((v) => tierPixels(v) >= wanted) ?? tiers.at(-1);
+      if (fit) out[key] = fit;
+      else dropped.push(key);
+    } else {
+      dropped.push(key);
+    }
+  }
+  return { body: out, dropped };
 }
 
 const usd = (amount: unknown) => (typeof amount === "number" && Number.isFinite(amount) ? { amount, currency: "USD" } : undefined);

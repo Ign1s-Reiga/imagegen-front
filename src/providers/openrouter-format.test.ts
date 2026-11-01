@@ -4,6 +4,7 @@ import { test } from "node:test";
 import type { ChatTurn } from "./chat.ts";
 import {
   INVALID_JSON,
+  fitImageBody,
   fromOpenRouterCompletion,
   nearestAspectRatio,
   parseOpenRouterCredit,
@@ -102,4 +103,44 @@ test("credit: month spend from the key, balance from a management key", () => {
   assert.deepEqual(both.balance, { amount: 1.5, currency: "USD" });
   assert.equal(both.low, true);
   assert.throws(() => parseOpenRouterCredit({}), /did not return/);
+});
+
+// From GET /images/models: FLUX 3 Image takes no seed, quality or background.
+const flux3 = {
+  resolution: { type: "enum", values: ["768", "1K", "1.5K", "2K", "4K"] },
+  aspect_ratio: { type: "enum", values: ["21:9", "16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16", "auto"] },
+  n: { type: "range", min: 1, max: 1 },
+  input_references: { type: "range", min: 0, max: 10 },
+} as const;
+
+test("fitImageBody drops what the model does not take", () => {
+  const { body, dropped } = fitImageBody(
+    { model: "black-forest-labs/flux-3-image", prompt: "a fox", seed: 7, quality: "high", aspect_ratio: "1:1", resolution: "1K" },
+    structuredClone(flux3) as never,
+  );
+  assert.deepEqual(body, { model: "black-forest-labs/flux-3-image", prompt: "a fox", aspect_ratio: "1:1", resolution: "1K" });
+  assert.deepEqual(dropped, ["seed", "quality"]);
+});
+
+test("fitImageBody keeps a seed the model takes", () => {
+  const { body } = fitImageBody({ model: "m", prompt: "p", seed: 7 }, { seed: { type: "boolean" } });
+  assert.equal(body.seed, 7);
+});
+
+test("fitImageBody swaps an aspect ratio or resolution for the nearest the model has", () => {
+  const supported = {
+    aspect_ratio: { type: "enum", values: ["1:1", "16:9", "9:16", "auto"] },
+    resolution: { type: "enum", values: ["1K", "2K"] },
+  } as const;
+  const fit = (aspect_ratio: string, resolution: string) =>
+    fitImageBody({ model: "m", prompt: "p", aspect_ratio, resolution }, structuredClone(supported) as never).body;
+  assert.deepEqual(fit("21:9", "4K"), { model: "m", prompt: "p", aspect_ratio: "16:9", resolution: "2K" });
+  assert.deepEqual(fit("4:5", "1K"), { model: "m", prompt: "p", aspect_ratio: "1:1", resolution: "1K" });
+  // 768 is below 1K, so 1K is the smallest that covers it.
+  assert.equal(fitImageBody({ model: "m", prompt: "p", resolution: "1K" }, flux3 as never).body.resolution, "1K");
+});
+
+test("fitImageBody sends the body as it is when the model is unknown", () => {
+  const body = { model: "m", prompt: "p", seed: 1, quality: "high" };
+  assert.deepEqual(fitImageBody(body, undefined), { body, dropped: [] });
 });
