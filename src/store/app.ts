@@ -591,7 +591,7 @@ export const useApp = create<AppState>()((set, get) => {
       if (params.references.length > caps.references) {
         throw new Error(
           caps.references
-            ? `${def.label} takes at most ${caps.references} reference images.`
+            ? `${def.label} takes at most ${caps.references} reference images. Remove some.`
             : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
         );
       }
@@ -660,13 +660,6 @@ export const useApp = create<AppState>()((set, get) => {
       }
       const mode = effectiveMode(form, caps);
       if (mode === "img2img" && !form.initImage) return fail("Add an input image, or switch to text to image.");
-      if (form.references.length > caps.references) {
-        return fail(
-          caps.references
-            ? `${def.label} takes at most ${caps.references} reference images. Remove some.`
-            : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
-        );
-      }
 
       const controller = new AbortController();
       const startedAt = Date.now();
