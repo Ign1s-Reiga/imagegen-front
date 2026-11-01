@@ -5,6 +5,7 @@ import type { ChatModel, ChatService } from "./chat";
 import {
   fitImageBody,
   fitSeed,
+  isProviderSlug,
   modelPath,
   passthroughOptions,
   fromOpenRouterCompletion,
@@ -111,8 +112,10 @@ async function passthroughKeys(config: ConnectionConfig, model: string, signal: 
   const url = `${base(config)}/images/models/${path}/endpoints`;
   const found = await sharedRead(imageEndpoints, url, config, signal);
   if (!found) return undefined;
+  // Slugs become object keys in provider.options, so only ones shaped like a
+  // provider slug are kept; "__proto__" and the like never get that far.
   const entries = (found.endpoints ?? []).flatMap((e) =>
-    e.provider_slug ? [[e.provider_slug, e.allowed_passthrough_parameters ?? []] as const] : [],
+    e.provider_slug && isProviderSlug(e.provider_slug) ? [[e.provider_slug, e.allowed_passthrough_parameters ?? []] as const] : [],
   );
   return Object.fromEntries(entries) as Record<string, string[]>;
 }
