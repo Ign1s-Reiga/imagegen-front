@@ -39,11 +39,14 @@ interface ModelsResponse {
 /** Each image model's supported parameters, per API base; read once a session. */
 const imageParams = new Map<string, Promise<Map<string, SupportedImageParams>>>();
 
-function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
+async function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
   const key = base(config);
   let models = imageParams.get(key);
   if (!models) {
-    models = httpJson<ModelsResponse>(`${key}/images/models`, request(config, { signal })).then(
+    // Shared by every run waiting on it, so no run's abort signal goes on it:
+    // one cancel would otherwise fail the read for all of them, and they would
+    // go out unfitted.
+    models = httpJson<ModelsResponse>(`${key}/images/models`, request(config)).then(
       (list) => new Map((list.data ?? []).flatMap((m) => (m.supported_parameters ? [[m.id, m.supported_parameters]] : []))),
     );
     imageParams.set(key, models);
@@ -51,7 +54,20 @@ function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSi
     models.catch(() => imageParams.delete(key));
   }
   // Without the list the request goes out unfitted, as before.
-  return models.then((m) => m.get(model)).catch(() => undefined);
+  const found = models.then((m) => m.get(model)).catch(() => undefined);
+  // This run alone stops waiting when it is cancelled.
+  let stop = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    stop = () => signal.removeEventListener("abort", onAbort);
+  });
+  try {
+    return await Promise.race([found, aborted]);
+  } finally {
+    stop();
+  }
 }
 
 interface ImagesResponse {
