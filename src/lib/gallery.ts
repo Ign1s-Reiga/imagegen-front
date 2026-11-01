@@ -105,7 +105,10 @@ export async function saveGeneration(
 
 export const listGenerations = (query: ListQuery = {}) => invoke<GenerationRecord[]>("gallery_list", { query });
 
-/** The most rows gallery_list returns per call (it clamps larger limits). */
+/**
+ * Rows asked for per call. gallery_list caps the limit on its side and may
+ * return fewer, so a short reply is not taken as the end of the list.
+ */
 const MAX_LIST = 500;
 
 /** Lists `count` generations from `offset`, in as many calls as gallery_list's cap needs. */
@@ -118,8 +121,9 @@ export async function listGenerationRange(
   while (out.length < count) {
     const limit = Math.min(MAX_LIST, count - out.length);
     const batch = await listGenerations({ ...query, offset: offset + out.length, limit });
+    // Only an empty reply ends the list: a short one may just be the backend's cap.
+    if (!batch.length) break;
     out.push(...batch);
-    if (batch.length < limit) break;
   }
   return out;
 }
