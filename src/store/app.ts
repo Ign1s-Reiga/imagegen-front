@@ -14,7 +14,7 @@ import {
   type GenerationRecord,
   type ImageRecord,
 } from "@/lib/gallery";
-import { isAbortError } from "@/lib/http";
+import { HttpError, isAbortError } from "@/lib/http";
 import { normalizeMask } from "@/lib/mask";
 import { midSentence } from "@/lib/text";
 import { deleteConnectionSecrets, deleteSecret, resolveConfig, setSecret } from "@/lib/secrets";
@@ -163,8 +163,9 @@ interface AppState {
   /**
    * Finds which `perModel` options a model takes, read once per model. A call
    * for a model already being read shares that read. Resolves true once the
-   * model's options are known, false when the read failed (nothing is kept, so
-   * a later call reads again).
+   * model's options are known, false when the read failed and may succeed
+   * later (nothing is kept, so a later call reads again). A failure that would
+   * not, such as an unknown model, is kept as no options and resolves true.
    */
   loadModelOptions(connectionId: string, model: string): Promise<boolean>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
@@ -281,6 +282,13 @@ function formFor(
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * A failed read that asking again would not fix: a 4xx other than a timeout
+ * or rate limit, such as a bad key or a model the backend does not know.
+ */
+const isFinalFailure = (err: unknown) =>
+  err instanceof HttpError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
 
 /** Per-model options reads in flight, by connection and model. */
 const modelOptionReads = new Map<string, Promise<boolean>>();
@@ -506,15 +514,20 @@ export const useApp = create<AppState>()((set, get) => {
       if (!read) {
         const lookup = def.modelOptionKeys;
         read = (async () => {
-          try {
-            const keys = await lookup(await resolveConfig(connection), model, AbortSignal.timeout(20_000));
+          const keep = (keys: string[]) =>
             set((s) => {
               const modelOptions = { ...s.choices[connectionId]?.modelOptions, [model]: keys };
               return { choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], modelOptions } } };
             });
+          try {
+            keep(await lookup(await resolveConfig(connection), model, AbortSignal.timeout(20_000)));
             return true;
-          } catch {
-            return false;
+          } catch (err) {
+            // Kept as "no options" when asking again would not help, so the
+            // panel neither retries it nor reads it again on the next pause.
+            if (!isFinalFailure(err)) return false;
+            keep([]);
+            return true;
           } finally {
             modelOptionReads.delete(key);
           }
