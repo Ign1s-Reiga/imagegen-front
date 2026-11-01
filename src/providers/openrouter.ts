@@ -97,11 +97,16 @@ interface EndpointsResponse {
 /** Each model's provider endpoints, per URL; read once a session, and only when an option needs them. */
 const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
 
-/** The model's providers that accept `parameter` passed through to them, by slug. */
+/**
+ * The model's providers that accept `parameter` passed through to them, by
+ * slug; undefined when the endpoints could not be read, so callers can tell
+ * "no provider takes it" from "unknown".
+ */
 async function passthroughProviders(config: ConnectionConfig, model: string, parameter: string, signal: AbortSignal) {
   const url = `${base(config)}/images/models/${model}/endpoints`;
   const found = await sharedRead(imageEndpoints, url, config, signal);
-  return (found?.endpoints ?? []).flatMap((e) =>
+  if (!found) return undefined;
+  return (found.endpoints ?? []).flatMap((e) =>
     e.provider_slug && e.allowed_passthrough_parameters?.includes(parameter) ? [e.provider_slug] : [],
   );
 }
@@ -235,6 +240,9 @@ export const openrouter: ProviderDefinition = {
 
   async modelOptionKeys(config, model, signal) {
     const slugs = await passthroughProviders(config, model, "moderation", signal ?? new AbortController().signal);
+    // Thrown rather than read as "none", so the store does not keep a failed
+    // lookup and asks again next time.
+    if (!slugs) throw new Error(`Could not read the providers for ${model}.`);
     return slugs.length ? ["moderation"] : [];
   },
 
@@ -305,7 +313,7 @@ export const openrouter: ProviderDefinition = {
     // Moderation is not an image parameter but a pass-through some providers
     // accept, so it goes in provider.options for those only.
     if (o.moderation && o.moderation !== "auto") {
-      const slugs = await passthroughProviders(config, model, "moderation", ctx.signal);
+      const slugs = (await passthroughProviders(config, model, "moderation", ctx.signal)) ?? [];
       if (slugs.length) {
         fitted.body.provider = { options: Object.fromEntries(slugs.map((slug) => [slug, { moderation: o.moderation }])) };
       }
