@@ -1,5 +1,5 @@
 import { base64ToBytes, sniffImageMime, toDataUri } from "@/lib/bytes";
-import { abortError, httpJson, trimSlash, type HttpOptions } from "@/lib/http";
+import { abortError, httpJson, isAbortError, trimSlash, type HttpOptions } from "@/lib/http";
 
 import type { ChatModel, ChatService } from "./chat";
 import {
@@ -58,23 +58,22 @@ const imageParams = new Map<string, Promise<ModelsResponse>>();
  * it for all of them. A timeout instead, so a read that never answers cannot
  * hold up every generation for the rest of the session; a failed read is
  * dropped from the cache and tried again next time. Each run stops waiting on
- * its own cancel. Resolves to undefined when the read fails, or with `rethrow`
- * rejects with its error, for a caller that needs to know why.
+ * its own cancel. Rejects with the read's error when it fails, or with an
+ * abort error when the run is cancelled; see `orUnknown` for callers that can
+ * go on without the answer.
  */
 async function sharedRead<T>(
   cache: Map<string, Promise<T>>,
   url: string,
   config: ConnectionConfig,
   signal: AbortSignal,
-  { rethrow = false } = {},
-): Promise<T | undefined> {
+): Promise<T> {
   let pending = cache.get(url);
   if (!pending) {
     pending = httpJson<T>(url, request(config, { signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS) }));
     cache.set(url, pending);
     pending.catch(() => cache.delete(url));
   }
-  const found = rethrow ? pending : pending.catch(() => undefined);
   let stop = () => {};
   const aborted = new Promise<never>((_, reject) => {
     const onAbort = () => reject(abortError());
@@ -83,15 +82,26 @@ async function sharedRead<T>(
     stop = () => signal.removeEventListener("abort", onAbort);
   });
   try {
-    return await Promise.race([found, aborted]);
+    return await Promise.race([pending, aborted]);
   } finally {
     stop();
   }
 }
 
+/**
+ * For a generation that can go on without an answer: undefined when the read
+ * failed, but a cancel still ends the run.
+ */
+function orUnknown<T>(read: Promise<T>): Promise<T | undefined> {
+  return read.catch((err: unknown) => {
+    if (isAbortError(err)) throw err;
+    return undefined;
+  });
+}
+
 /** A model's supported parameters; undefined when the list cannot be read (the request then goes out unfitted). */
 async function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
-  const list = await sharedRead(imageParams, `${base(config)}/images/models`, config, signal);
+  const list = await orUnknown(sharedRead(imageParams, `${base(config)}/images/models`, config, signal));
   return list?.data?.find((m) => m.id === model)?.supported_parameters;
 }
 
@@ -104,16 +114,15 @@ const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
 
 /**
  * The keys each of the model's providers accepts passed through to it, by
- * provider slug; undefined when the endpoints could not be read, so callers
- * can tell "no provider takes it" from "unknown".
+ * provider slug. Rejects when the endpoints cannot be read, so callers can
+ * tell "no provider takes it" from "unknown".
  */
-async function passthroughKeys(config: ConnectionConfig, model: string, signal: AbortSignal, rethrow = false) {
+async function passthroughKeys(config: ConnectionConfig, model: string, signal: AbortSignal) {
   const path = modelPath(model);
   // Not a model id, so no provider can take anything for it.
   if (!path) return {};
   const url = `${base(config)}/images/models/${path}/endpoints`;
-  const found = await sharedRead(imageEndpoints, url, config, signal, { rethrow });
-  if (!found) return undefined;
+  const found = await sharedRead(imageEndpoints, url, config, signal);
   // Slugs become object keys in provider.options, so only ones shaped like a
   // provider slug are kept; "__proto__" and the like never get that far.
   // A provider can serve a model from several endpoints; it takes a key if any
@@ -266,9 +275,8 @@ export const openrouter: ProviderDefinition = {
   async modelOptionKeys(config, model, signal) {
     // A failed read rejects with its own error rather than reading as "none",
     // so the store can tell one worth retrying (offline, 5xx) from one that is
-    // not (a bad key, an unknown model).
-    const accepted = await passthroughKeys(config, model, signal ?? new AbortController().signal, true);
-    if (!accepted) throw new Error(`Could not read the providers for ${model}.`);
+    // not (an unknown model).
+    const accepted = await passthroughKeys(config, model, signal ?? new AbortController().signal);
     const listed = new Set(Object.values(accepted).flat());
     return PASSTHROUGH_FIELDS.flatMap((f) => (listed.has(f.key) ? [f.key] : []));
   },
@@ -320,7 +328,7 @@ export const openrouter: ProviderDefinition = {
     // timeout at most rather than one after the other.
     const [supported, accepted] = await Promise.all([
       imageParamsFor(config, model, ctx.signal),
-      Object.keys(passthrough).length ? passthroughKeys(config, model, ctx.signal) : undefined,
+      Object.keys(passthrough).length ? orUnknown(passthroughKeys(config, model, ctx.signal)) : undefined,
     ]);
     // A model whose list leaves out input_references takes no images; without
     // this check fitImageBody would drop them and an edit would quietly become a
