@@ -6,6 +6,7 @@ import {
   INVALID_JSON,
   fitImageBody,
   fitSeed,
+  isProviderSlug,
   modelPath,
   passthroughOptions,
   fromOpenRouterCompletion,
@@ -186,4 +187,9 @@ test("modelPath encodes a model id and refuses what is not one", () => {
   for (const bad of ["", "openai/", "/key", "../key", "openai/../../key", "openai/./x"]) {
     assert.equal(modelPath(bad), null, bad);
   }
+});
+
+test("isProviderSlug accepts provider slugs only", () => {
+  for (const slug of ["openai", "black-forest-labs", "google-vertex", "z.ai"]) assert.ok(isProviderSlug(slug), slug);
+  for (const slug of ["", "__proto__", "Prototype", "-x", "a/b"]) assert.ok(!isProviderSlug(slug), slug);
 });

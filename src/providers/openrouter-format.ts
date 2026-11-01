@@ -220,6 +220,9 @@ export function fitSeed(seed: number, spec: ImageParamSpec | undefined): number 
   return min + ((((seed - min) % span) + span) % span);
 }
 
+/** Whether `slug` looks like an OpenRouter provider slug, such as "openai" or "black-forest-labs". */
+export const isProviderSlug = (slug: string) => /^[a-z0-9][a-z0-9._-]*$/.test(slug);
+
 /**
  * Sorts provider-specific option values onto the providers that accept them.
  * `accepted` maps each provider slug to the keys it lists in
@@ -231,14 +234,16 @@ export function passthroughOptions(
   values: Record<string, string>,
   accepted: Record<string, string[]> | undefined,
 ): { options: Record<string, Record<string, string>> | undefined; unsent: string[] } {
-  const options: Record<string, Record<string, string>> = {};
+  // No prototype, so no key, whatever it is, can reach Object.prototype.
+  const options: Record<string, Record<string, string>> = Object.create(null);
   const unsent: string[] = [];
   for (const [key, value] of Object.entries(values)) {
     const slugs = Object.entries(accepted ?? {}).filter(([, keys]) => keys.includes(key));
     if (!slugs.length) unsent.push(key);
     for (const [slug] of slugs) (options[slug] ??= {})[key] = value;
   }
-  return { options: Object.keys(options).length ? options : undefined, unsent };
+  // Copied as own properties into a plain object for the request body.
+  return { options: Object.keys(options).length ? { ...options } : undefined, unsent };
 }
 
 /**
