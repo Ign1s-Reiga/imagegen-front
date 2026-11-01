@@ -162,7 +162,7 @@ export interface ProviderDefinition extends ServiceDefinition {
   suggestedModels: string[];
   defaults?: Partial<Pick<GenerateParams, "steps" | "cfg" | "sampler" | "scheduler">>;
   listModels?: (config: ConnectionConfig, signal?: AbortSignal) => Promise<ModelChoice[]>;
-  /** Which `perModel` options a model takes, by key. */
+  /** Which `perModel` options a model takes, by key. Rejects, with the HTTP error where there is one, when they cannot be read. */
   modelOptionKeys?: (config: ConnectionConfig, model: string, signal?: AbortSignal) => Promise<string[]>;
   listSamplers?: (
     config: ConnectionConfig,

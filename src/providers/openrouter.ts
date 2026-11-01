@@ -58,13 +58,15 @@ const imageParams = new Map<string, Promise<ModelsResponse>>();
  * it for all of them. A timeout instead, so a read that never answers cannot
  * hold up every generation for the rest of the session; a failed read is
  * dropped from the cache and tried again next time. Each run stops waiting on
- * its own cancel. Resolves to undefined when the read fails.
+ * its own cancel. Resolves to undefined when the read fails, or with `rethrow`
+ * rejects with its error, for a caller that needs to know why.
  */
 async function sharedRead<T>(
   cache: Map<string, Promise<T>>,
   url: string,
   config: ConnectionConfig,
   signal: AbortSignal,
+  { rethrow = false } = {},
 ): Promise<T | undefined> {
   let pending = cache.get(url);
   if (!pending) {
@@ -72,7 +74,7 @@ async function sharedRead<T>(
     cache.set(url, pending);
     pending.catch(() => cache.delete(url));
   }
-  const found = pending.catch(() => undefined);
+  const found = rethrow ? pending : pending.catch(() => undefined);
   let stop = () => {};
   const aborted = new Promise<never>((_, reject) => {
     const onAbort = () => reject(abortError());
@@ -105,12 +107,12 @@ const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
  * provider slug; undefined when the endpoints could not be read, so callers
  * can tell "no provider takes it" from "unknown".
  */
-async function passthroughKeys(config: ConnectionConfig, model: string, signal: AbortSignal) {
+async function passthroughKeys(config: ConnectionConfig, model: string, signal: AbortSignal, rethrow = false) {
   const path = modelPath(model);
   // Not a model id, so no provider can take anything for it.
   if (!path) return {};
   const url = `${base(config)}/images/models/${path}/endpoints`;
-  const found = await sharedRead(imageEndpoints, url, config, signal);
+  const found = await sharedRead(imageEndpoints, url, config, signal, { rethrow });
   if (!found) return undefined;
   // Slugs become object keys in provider.options, so only ones shaped like a
   // provider slug are kept; "__proto__" and the like never get that far.
@@ -261,9 +263,10 @@ export const openrouter: ProviderDefinition = {
   suggestedModels: [],
 
   async modelOptionKeys(config, model, signal) {
-    const accepted = await passthroughKeys(config, model, signal ?? new AbortController().signal);
-    // Thrown rather than read as "none", so the store does not keep a failed
-    // lookup and asks again next time.
+    // A failed read rejects with its own error rather than reading as "none",
+    // so the store can tell one worth retrying (offline, 5xx) from one that is
+    // not (a bad key, an unknown model).
+    const accepted = await passthroughKeys(config, model, signal ?? new AbortController().signal, true);
     if (!accepted) throw new Error(`Could not read the providers for ${model}.`);
     const listed = new Set(Object.values(accepted).flat());
     return PASSTHROUGH_FIELDS.flatMap((f) => (listed.has(f.key) ? [f.key] : []));
