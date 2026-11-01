@@ -220,6 +220,27 @@ export function fitSeed(seed: number, spec: ImageParamSpec | undefined): number 
   return min + ((((seed - min) % span) + span) % span);
 }
 
+/**
+ * Sorts provider-specific option values onto the providers that accept them.
+ * `accepted` maps each provider slug to the keys it lists in
+ * allowed_passthrough_parameters (undefined when it could not be read).
+ * Returns provider.options for the request, or undefined when nothing goes,
+ * and the keys no provider took.
+ */
+export function passthroughOptions(
+  values: Record<string, string>,
+  accepted: Record<string, string[]> | undefined,
+): { options: Record<string, Record<string, string>> | undefined; unsent: string[] } {
+  const options: Record<string, Record<string, string>> = {};
+  const unsent: string[] = [];
+  for (const [key, value] of Object.entries(values)) {
+    const slugs = Object.entries(accepted ?? {}).filter(([, keys]) => keys.includes(key));
+    if (!slugs.length) unsent.push(key);
+    for (const [slug] of slugs) (options[slug] ??= {})[key] = value;
+  }
+  return { options: Object.keys(options).length ? options : undefined, unsent };
+}
+
 const usd = (amount: unknown) => (typeof amount === "number" && Number.isFinite(amount) ? { amount, currency: "USD" } : undefined);
 
 /** GET /key (month spend) and, with a management key, GET /credits (balance). */

@@ -6,6 +6,7 @@ import {
   INVALID_JSON,
   fitImageBody,
   fitSeed,
+  passthroughOptions,
   fromOpenRouterCompletion,
   nearestAspectRatio,
   parseOpenRouterCredit,
@@ -161,4 +162,18 @@ test("fitSeed wraps a seed into the model's range, or 32 bits without one", () =
   assert.equal(fitSeed(2 ** 32 + 5, undefined), 5);
   assert.equal(fitSeed(7, { type: "boolean" }), 7);
   assert.equal(fitSeed(15, { type: "range", min: 10, max: 12 }), 12);
+});
+
+test("passthroughOptions routes each option to the providers that list it", () => {
+  const accepted = { openai: ["moderation"], "black-forest-labs": ["safety_tolerance"] };
+  assert.deepEqual(passthroughOptions({ moderation: "low", safety_tolerance: "5" }, accepted), {
+    options: { openai: { moderation: "low" }, "black-forest-labs": { safety_tolerance: "5" } },
+    unsent: [],
+  });
+  assert.deepEqual(passthroughOptions({ moderation: "low" }, { "black-forest-labs": ["safety_tolerance"] }), {
+    options: undefined,
+    unsent: ["moderation"],
+  });
+  // Unknown providers: nothing is sent, and the caller says so.
+  assert.deepEqual(passthroughOptions({ moderation: "low" }, undefined), { options: undefined, unsent: ["moderation"] });
 });
