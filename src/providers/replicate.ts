@@ -12,6 +12,15 @@ function request(config: ConnectionConfig, init: HttpOptions = {}): HttpOptions 
   return { ...init, headers };
 }
 
+/**
+ * Options for downloading an output. The token goes only to Replicate's own API
+ * (its files endpoint needs it); any other host, which a model can choose,
+ * gets a plain request so the token never leaves Replicate.
+ */
+function outputRequest(config: ConnectionConfig, url: string, init: HttpOptions): HttpOptions {
+  return new URL(url).origin === new URL(API).origin ? request(config, init) : init;
+}
+
 interface ModelInfo {
   latest_version?: { id: string; openapi_schema?: Record<string, unknown> };
 }
@@ -220,7 +229,7 @@ export const replicate: ProviderDefinition = {
         const data = url.startsWith("data:") ? parseDataUri(url) : null;
         const image = data
           ? { bytes: data.bytes, mime: sniffImageMime(data.bytes, data.mime) }
-          : await httpImage(url, request(config, { signal: ctx.signal }));
+          : await httpImage(url, outputRequest(config, url, { signal: ctx.signal }));
         images.push({ ...image, seed: "seed" in input ? params.seed : null });
       }
       return { images, model, info: { predictionId: prediction.id } };
