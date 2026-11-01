@@ -168,9 +168,12 @@ export function GalleryView() {
   const { generations, error, hasMore } = result;
   // Asks again for as many pages as the failed load wanted. The page count may
   // have dropped since (the search box resets it), and with fewer pages than
-  // are loaded there would be nothing to fetch.
+  // are loaded there would be nothing to fetch. Not when another list is on its
+  // way (a search still settling, or another filter): that one starts at one
+  // page, and the failed load's count does not apply to it.
   const retry = () => {
-    setPages((p) => Math.max(p, result.failedPages ?? p));
+    const sameList = result.listKey === listKey && search === query;
+    if (sameList) setPages((p) => Math.max(p, result.failedPages ?? p));
     setAttempt((a) => a + 1);
   };
   const loading = result.key !== requestKey;
