@@ -135,7 +135,9 @@ export function GalleryView() {
     // before its query settles), or the list is already known to end sooner.
     if (from === wanted || (sameList && !prev.error && !prev.hasMore)) {
       const hasMore = prev.generations.length > wanted || prev.hasMore;
-      void Promise.resolve().then(() => done({ key: requestKey, listKey, generations: kept, hasMore, error: null }));
+      // Nothing was loaded here, so a failure from the last load still stands,
+      // with its Try again.
+      void Promise.resolve().then(() => done({ key: requestKey, listKey, generations: kept, hasMore, error: prev.error }));
       return () => {
         cancelled = true;
       };
