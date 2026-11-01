@@ -8,7 +8,6 @@ import { boundInput, fieldKey, type SavedWorkflow, type WorkflowBinding } from "
 import { provider } from "@/providers/registry";
 import type { OptionField } from "@/providers/types";
 import {
-  MODEL_OPTIONS_RETRIES,
   activeConnection,
   activeWorkflow,
   capabilitiesFor,
@@ -136,6 +135,9 @@ function WorkflowField({
   );
 }
 
+/** How long to wait before each retry of a failed per-model options read. */
+const MODEL_OPTIONS_RETRY_MS = [3_000, 6_000];
+
 export function ParamsPanel() {
   const form = useApp((s) => s.form);
   const setForm = useApp((s) => s.setForm);
@@ -180,13 +182,21 @@ export function ParamsPanel() {
   const connectionId = connection?.id;
   useEffect(() => {
     if (!connectionId || !optionModel) return;
-    // A listed id is a real model, so a failed read of it is worth retrying; an
-    // unlisted one may be a typo, which would only fail again.
-    const timer = setTimeout(
-      () => void loadModelOptions(connectionId, optionModel, knownModel ? MODEL_OPTIONS_RETRIES : 0),
-      knownModel ? 0 : 800,
-    );
-    return () => clearTimeout(timer);
+    // A listed id is a real model, so a failed read of it is tried again; an
+    // unlisted one may be a typo, which would only fail again. Retrying here,
+    // not in the store, means a change of model or connection cancels it.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = async (n: number) => {
+      const known = await loadModelOptions(connectionId, optionModel);
+      if (known || cancelled || !knownModel || n >= MODEL_OPTIONS_RETRY_MS.length) return;
+      timer = setTimeout(() => void attempt(n + 1), MODEL_OPTIONS_RETRY_MS[n]);
+    };
+    timer = setTimeout(() => void attempt(0), knownModel ? 0 : 800);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [connectionId, optionModel, knownModel, loadModelOptions]);
 
   if (!connection) {

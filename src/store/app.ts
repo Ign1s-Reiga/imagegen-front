@@ -161,10 +161,12 @@ interface AppState {
   removeConnection(id: string): Promise<void>;
   loadChoices(connectionId: string): Promise<void>;
   /**
-   * Finds which `perModel` options a model takes; read once per model. A failed
-   * read is tried again up to `retries` times, a few seconds apart.
+   * Finds which `perModel` options a model takes, read once per model. A call
+   * for a model already being read shares that read. Resolves true once the
+   * model's options are known, false when the read failed (nothing is kept, so
+   * a later call reads again).
    */
-  loadModelOptions(connectionId: string, model: string, retries?: number): Promise<void>;
+  loadModelOptions(connectionId: string, model: string): Promise<boolean>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
   importWorkflow(file: File): Promise<SavedWorkflow | null>;
   saveWorkflow(workflow: SavedWorkflow): Promise<void>;
@@ -280,9 +282,8 @@ function formFor(
 
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** How often, and how far apart, a failed per-model options read is retried. */
-export const MODEL_OPTIONS_RETRIES = 2;
-const MODEL_OPTIONS_RETRY_MS = 3_000;
+/** Per-model options reads in flight, by connection and model. */
+const modelOptionReads = new Map<string, Promise<boolean>>();
 
 export const useApp = create<AppState>()((set, get) => {
   /** Writes the current form into `forms` (shared part + active connection). */
@@ -494,31 +495,33 @@ export const useApp = create<AppState>()((set, get) => {
       }
     },
 
-    async loadModelOptions(connectionId, model, retries = 0) {
+    loadModelOptions(connectionId, model) {
       const connection = get().connections.find((c) => c.id === connectionId);
-      if (!connection || !isImageConnection(connection) || !model) return;
+      if (!connection || !isImageConnection(connection) || !model) return Promise.resolve(false);
       const def = provider(connection.kind);
-      if (!def.modelOptionKeys || get().choices[connectionId]?.modelOptions?.[model]) return;
-      const setKeys = (keys: string[] | undefined) =>
-        set((s) => {
-          const modelOptions = { ...s.choices[connectionId]?.modelOptions };
-          if (keys) modelOptions[model] = keys;
-          else delete modelOptions[model];
-          return { choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], modelOptions } } };
-        });
-      // Marked first, so a second call for the same model does not read again.
-      setKeys([]);
-      try {
-        setKeys(await def.modelOptionKeys(await resolveConfig(connection), model, AbortSignal.timeout(20_000)));
-      } catch {
-        // Hidden until a later call reads it successfully. Nothing else would
-        // make that call while the same model stays selected, so retry here.
-        setKeys(undefined);
-        if (retries > 0) {
-          const delay = MODEL_OPTIONS_RETRY_MS * 2 ** (MODEL_OPTIONS_RETRIES - retries);
-          setTimeout(() => void get().loadModelOptions(connectionId, model, retries - 1), delay);
-        }
+      if (!def.modelOptionKeys) return Promise.resolve(false);
+      if (get().choices[connectionId]?.modelOptions?.[model]) return Promise.resolve(true);
+      const key = JSON.stringify([connectionId, model]);
+      let read = modelOptionReads.get(key);
+      if (!read) {
+        const lookup = def.modelOptionKeys;
+        read = (async () => {
+          try {
+            const keys = await lookup(await resolveConfig(connection), model, AbortSignal.timeout(20_000));
+            set((s) => {
+              const modelOptions = { ...s.choices[connectionId]?.modelOptions, [model]: keys };
+              return { choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], modelOptions } } };
+            });
+            return true;
+          } catch {
+            return false;
+          } finally {
+            modelOptionReads.delete(key);
+          }
+        })();
+        modelOptionReads.set(key, read);
       }
+      return read;
     },
 
     async loadCredit(connectionId, { force = false } = {}) {
