@@ -183,6 +183,10 @@ export function fitImageBody(
       dropped.push(key);
       continue;
     }
+    if (spec.type === "range" && typeof value === "number") {
+      out[key] = Math.min(spec.max, Math.max(spec.min, value));
+      continue;
+    }
     if (spec.type !== "enum" || typeof value !== "string" || spec.values.includes(value)) {
       out[key] = value;
       continue;
@@ -203,6 +207,17 @@ export function fitImageBody(
     }
   }
   return { body: out, dropped };
+}
+
+/**
+ * A seed the model accepts: wrapped into the range it lists, or into 32 bits
+ * when it lists none. Wrapped rather than clamped, so seeds past the end stay
+ * distinct instead of all becoming the maximum.
+ */
+export function fitSeed(seed: number, spec: ImageParamSpec | undefined): number {
+  const [min, max] = spec?.type === "range" ? [spec.min, spec.max] : [0, 2 ** 32 - 1];
+  const span = max - min + 1;
+  return min + ((((seed - min) % span) + span) % span);
 }
 
 const usd = (amount: unknown) => (typeof amount === "number" && Number.isFinite(amount) ? { amount, currency: "USD" } : undefined);

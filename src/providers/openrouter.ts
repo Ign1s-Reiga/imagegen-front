@@ -4,6 +4,7 @@ import { httpJson, trimSlash, type HttpOptions } from "@/lib/http";
 import type { ChatModel, ChatService } from "./chat";
 import {
   fitImageBody,
+  fitSeed,
   fromOpenRouterCompletion,
   nearestAspectRatio,
   parseOpenRouterCredit,
@@ -245,6 +246,7 @@ export const openrouter: ProviderDefinition = {
     // Models reject parameters they do not take, such as a seed on FLUX 3 Image.
     const fitted = fitImageBody(body, supported);
     const seeded = "seed" in fitted.body;
+    const seedOf = (i: number) => fitSeed(params.seed + i, supported?.seed);
 
     ctx.onProgress({ stage: "running", message: `Waiting for ${model}` });
     // Many image models make one image per request and reject n > 1, so each
@@ -255,7 +257,7 @@ export const openrouter: ProviderDefinition = {
           `${base(config)}/images`,
           request(config, {
             method: "POST",
-            body: JSON.stringify(seeded ? { ...fitted.body, seed: (params.seed + i) % 2 ** 32 } : fitted.body),
+            body: JSON.stringify(seeded ? { ...fitted.body, seed: seedOf(i) } : fitted.body),
             signal: ctx.signal,
           }),
         ),
@@ -267,7 +269,7 @@ export const openrouter: ProviderDefinition = {
       for (const item of response.data ?? []) {
         if (!item.b64_json) continue;
         const bytes = base64ToBytes(item.b64_json);
-        images.push({ bytes, mime: sniffImageMime(bytes, item.media_type), seed: seeded ? (params.seed + i) % 2 ** 32 : null });
+        images.push({ bytes, mime: sniffImageMime(bytes, item.media_type), seed: seeded ? seedOf(i) : null });
       }
     }
     if (!images.length) throw new Error(`${model} returned no images.`);
