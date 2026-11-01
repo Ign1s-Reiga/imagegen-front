@@ -277,7 +277,7 @@ export const useApp = create<AppState>()((set, get) => {
   /** Writes the current form into `forms` (shared part + active connection). */
   const flushForm = () => {
     clearTimeout(persistTimer);
-    const { form, forms, activeConnectionId } = get();
+    const { form, forms, activeConnectionId, connections } = get();
     const next = { ...forms };
     next[GLOBAL_KEY] = {
       prompt: form.prompt,
@@ -288,7 +288,9 @@ export const useApp = create<AppState>()((set, get) => {
       seed: form.seed,
       strength: form.strength,
     };
-    if (activeConnectionId) {
+    // A connection being removed is still active until the next one is picked;
+    // writing its entry here would bring back the form state just deleted.
+    if (activeConnectionId && connections.some((c) => c.id === activeConnectionId)) {
       next[activeConnectionId] = Object.fromEntries(PER_CONNECTION.map((k) => [k, form[k]]));
     }
     set({ forms: next });
@@ -589,7 +591,7 @@ export const useApp = create<AppState>()((set, get) => {
       if (params.references.length > caps.references) {
         throw new Error(
           caps.references
-            ? `${def.label} takes at most ${caps.references} reference images.`
+            ? `${def.label} takes at most ${caps.references} reference images. Remove some.`
             : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
         );
       }
@@ -658,13 +660,6 @@ export const useApp = create<AppState>()((set, get) => {
       }
       const mode = effectiveMode(form, caps);
       if (mode === "img2img" && !form.initImage) return fail("Add an input image, or switch to text to image.");
-      if (form.references.length > caps.references) {
-        return fail(
-          caps.references
-            ? `${def.label} takes at most ${caps.references} reference images. Remove some.`
-            : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
-        );
-      }
 
       const controller = new AbortController();
       const startedAt = Date.now();

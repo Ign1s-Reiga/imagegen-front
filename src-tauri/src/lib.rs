@@ -30,6 +30,7 @@ pub fn run() {
             secrets::secret_delete,
             gallery::gallery_write_image,
             gallery::gallery_commit,
+            gallery::gallery_discard_images,
             gallery::gallery_list,
             gallery::gallery_delete_generation,
             gallery::gallery_delete_image,

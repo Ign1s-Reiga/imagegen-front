@@ -5,17 +5,19 @@
 //! generation and all of its images in a single transaction.
 
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, State,
+    AppHandle, Manager, State, WebviewWindow,
     ipc::{InvokeBody, Request},
 };
+use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{Error, Result};
 
@@ -202,17 +204,54 @@ pub async fn gallery_write_image(
     })
 }
 
+/// File names come back from `gallery_write_image`, so accept only the shape it
+/// makes: a hyphenated lowercase UUID and one of its extensions. A denylist of
+/// separators and `..` would let through Windows names such as `C:x.png`, which
+/// `join` resolves outside the images directory.
+fn is_gallery_file_name(file_name: &str) -> bool {
+    file_name.split_once('.').is_some_and(|(stem, ext)| {
+        uuid::Uuid::try_parse(stem).is_ok_and(|id| id.hyphenated().to_string() == stem)
+            && sanitize_ext(ext) == ext
+    })
+}
+
+fn check_file_name(file_name: &str) -> Result<()> {
+    if !is_gallery_file_name(file_name) {
+        return Err(Error::msg(format!("invalid file name: {file_name}")));
+    }
+    Ok(())
+}
+
+/// Removes files written by `gallery_write_image` for a generation that was
+/// never committed, so a failed save leaves nothing behind. Files that belong
+/// to a committed image are kept.
+#[tauri::command]
+pub async fn gallery_discard_images(
+    file_names: Vec<String>,
+    gallery: State<'_, Gallery>,
+) -> Result<()> {
+    for name in &file_names {
+        check_file_name(name)?;
+    }
+    let orphans = {
+        let conn = gallery.conn();
+        let mut stmt = conn.prepare("SELECT 1 FROM images WHERE file_name = ?1")?;
+        let mut orphans = Vec::new();
+        for name in file_names {
+            if !stmt.exists(params![name])? {
+                orphans.push(name);
+            }
+        }
+        orphans
+    };
+    gallery.remove_files(&orphans);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn gallery_commit(generation: NewGeneration, gallery: State<'_, Gallery>) -> Result<()> {
     for image in &generation.images {
-        // File names come back from gallery_write_image; refuse anything that
-        // could point outside the images directory.
-        if image.file_name.contains(['/', '\\']) || image.file_name.contains("..") {
-            return Err(Error::msg(format!(
-                "invalid file name: {}",
-                image.file_name
-            )));
-        }
+        check_file_name(&image.file_name)?;
     }
 
     let mut conn = gallery.conn();
@@ -275,11 +314,6 @@ pub async fn gallery_list(
          ORDER BY created_at DESC
          LIMIT ?3 OFFSET ?4",
     )?;
-    let mut img_stmt = conn.prepare(
-        "SELECT id, idx, file_name, mime, width, height, seed, favorite
-         FROM images WHERE generation_id = ?1 ORDER BY idx",
-    )?;
-
     let escaped = search.map(|s| {
         s.replace('\\', "\\\\")
             .replace('%', "\\%")
@@ -310,26 +344,44 @@ pub async fn gallery_list(
         },
     )?;
 
-    let mut generations = Vec::new();
-    for row in rows {
-        let mut generation = row?;
-        let images = img_stmt.query_map(params![generation.id], |row| {
-            let file_name: String = row.get(2)?;
+    let mut generations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if generations.is_empty() {
+        return Ok(generations);
+    }
+
+    // Every page's images in one query rather than one per generation. The
+    // limit above keeps the id list well under SQLite's parameter cap.
+    let placeholders = vec!["?"; generations.len()].join(", ");
+    let mut img_stmt = conn.prepare(&format!(
+        "SELECT generation_id, id, idx, file_name, mime, width, height, seed, favorite
+         FROM images WHERE generation_id IN ({placeholders}) ORDER BY generation_id, idx"
+    ))?;
+    let mut by_generation: HashMap<String, Vec<ImageRecord>> = HashMap::new();
+    let images =
+        img_stmt.query_map(params_from_iter(generations.iter().map(|g| &g.id)), |row| {
+            let file_name: String = row.get(3)?;
             Ok(ImageRecord {
-                id: row.get(0)?,
-                generation_id: generation.id.clone(),
-                index: row.get(1)?,
+                generation_id: row.get(0)?,
+                id: row.get(1)?,
+                index: row.get(2)?,
                 path: path_string(&gallery.path_of(&file_name)),
                 file_name,
-                mime: row.get(3)?,
-                width: row.get(4)?,
-                height: row.get(5)?,
-                seed: row.get(6)?,
-                favorite: row.get::<_, i64>(7)? != 0,
+                mime: row.get(4)?,
+                width: row.get(5)?,
+                height: row.get(6)?,
+                seed: row.get(7)?,
+                favorite: row.get::<_, i64>(8)? != 0,
             })
         })?;
-        generation.images = images.collect::<rusqlite::Result<_>>()?;
-        generations.push(generation);
+    for image in images {
+        let image = image?;
+        by_generation
+            .entry(image.generation_id.clone())
+            .or_default()
+            .push(image);
+    }
+    for generation in &mut generations {
+        generation.images = by_generation.remove(&generation.id).unwrap_or_default();
     }
     Ok(generations)
 }
@@ -420,19 +472,77 @@ pub async fn gallery_read_image(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Copies a stored image to a path the user picked in a save dialog.
+/// Asks where to save a stored image, then copies it there. The dialog runs
+/// here, as in `files::save_file`, so the webview never chooses the
+/// destination. Returns the chosen path, or `None` when the dialog was closed.
 #[tauri::command]
 pub async fn gallery_export_image(
+    window: WebviewWindow,
     id: String,
-    destination: String,
+    suggested_name: String,
     gallery: State<'_, Gallery>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let file_name = image_file_name(&gallery.conn(), &id)?;
-    fs::copy(gallery.path_of(&file_name), destination)?;
-    Ok(())
+    let ext = Path::new(&file_name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("png")
+        .to_owned();
+    let Some(path) = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_file_name(format!("{suggested_name}.{ext}"))
+        .add_filter("Image", &[ext.as_str()])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path
+        .into_path()
+        .map_err(|err| Error::msg(err.to_string()))?;
+    fs::copy(gallery.path_of(&file_name), &path)?;
+    Ok(Some(path_string(&path)))
 }
 
 #[tauri::command]
 pub fn gallery_dir(gallery: State<'_, Gallery>) -> String {
     path_string(&gallery.images_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_gallery_file_name;
+
+    #[test]
+    fn accepts_names_gallery_write_image_makes() {
+        let name = format!("{}.png", uuid::Uuid::new_v4());
+        assert!(is_gallery_file_name(&name));
+        assert!(is_gallery_file_name(
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.jpg"
+        ));
+        assert!(is_gallery_file_name(
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.webp"
+        ));
+    }
+
+    #[test]
+    fn refuses_anything_else() {
+        for name in [
+            "",
+            "C:evil.png",
+            r"C:\Windows\evil.png",
+            "../67e55044-10b1-426f-9247-bb680e5fe0c8.png",
+            "sub/67e55044-10b1-426f-9247-bb680e5fe0c8.png",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.exe",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.PNG",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.png.png",
+            "67E55044-10B1-426F-9247-BB680E5FE0C8.png",
+            "{67e55044-10b1-426f-9247-bb680e5fe0c8}.png",
+            "urn:uuid:67e55044-10b1-426f-9247-bb680e5fe0c8.png",
+        ] {
+            assert!(!is_gallery_file_name(name), "{name}");
+        }
+    }
 }

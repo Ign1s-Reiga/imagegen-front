@@ -63,35 +63,66 @@ export async function saveGeneration(
   images: GeneratedImage[],
 ): Promise<GenerationRecord> {
   const records: ImageRecord[] = [];
-  for (const [index, image] of images.entries()) {
-    const mime = sniffImageMime(image.bytes, image.mime);
-    const written = await invoke<{ fileName: string; path: string }>("gallery_write_image", image.bytes, {
-      headers: { "x-ext": extForMime(mime) },
+  try {
+    for (const [index, image] of images.entries()) {
+      const mime = sniffImageMime(image.bytes, image.mime);
+      const written = await invoke<{ fileName: string; path: string }>("gallery_write_image", image.bytes, {
+        headers: { "x-ext": extForMime(mime) },
+      });
+      const record: ImageRecord = {
+        id: crypto.randomUUID(),
+        generationId: meta.id,
+        index,
+        fileName: written.fileName,
+        path: written.path,
+        mime,
+        width: null,
+        height: null,
+        seed: safeSeed(image.seed),
+        favorite: false,
+      };
+      // Tracked before anything else can fail, so the catch below removes it.
+      records.push(record);
+      const size = await imageDimensions(image.bytes, mime);
+      record.width = size?.width ?? null;
+      record.height = size?.height ?? null;
+    }
+    await invoke("gallery_commit", {
+      generation: {
+        ...meta,
+        images: records.map(({ id, fileName, mime, width, height, seed }) => ({ id, fileName, mime, width, height, seed })),
+      },
     });
-    const size = await imageDimensions(image.bytes, mime);
-    records.push({
-      id: crypto.randomUUID(),
-      generationId: meta.id,
-      index,
-      fileName: written.fileName,
-      path: written.path,
-      mime,
-      width: size?.width ?? null,
-      height: size?.height ?? null,
-      seed: safeSeed(image.seed),
-      favorite: false,
-    });
+  } catch (err) {
+    // Files written before the failure would otherwise sit on disk with no row.
+    if (records.length) {
+      await invoke("gallery_discard_images", { fileNames: records.map((r) => r.fileName) }).catch(() => {});
+    }
+    throw err;
   }
-  await invoke("gallery_commit", {
-    generation: {
-      ...meta,
-      images: records.map(({ id, fileName, mime, width, height, seed }) => ({ id, fileName, mime, width, height, seed })),
-    },
-  });
   return { ...meta, images: records };
 }
 
 export const listGenerations = (query: ListQuery = {}) => invoke<GenerationRecord[]>("gallery_list", { query });
+
+/** The most rows gallery_list returns per call (it clamps larger limits). */
+const MAX_LIST = 500;
+
+/** Lists `count` generations from `offset`, in as many calls as gallery_list's cap needs. */
+export async function listGenerationRange(
+  query: Omit<ListQuery, "offset" | "limit">,
+  offset: number,
+  count: number,
+): Promise<GenerationRecord[]> {
+  const out: GenerationRecord[] = [];
+  while (out.length < count) {
+    const limit = Math.min(MAX_LIST, count - out.length);
+    const batch = await listGenerations({ ...query, offset: offset + out.length, limit });
+    out.push(...batch);
+    if (batch.length < limit) break;
+  }
+  return out;
+}
 
 export const deleteGeneration = (id: string) => invoke<void>("gallery_delete_generation", { id });
 
@@ -104,7 +135,8 @@ export async function readImageBytes(id: string): Promise<Bytes> {
   return new Uint8Array(buffer);
 }
 
-export const exportImage = (id: string, destination: string) =>
-  invoke<void>("gallery_export_image", { id, destination });
+/** Asks where to save the image (the dialog runs in Rust) and copies it there. Returns null when the dialog was closed. */
+export const exportImage = (id: string, suggestedName: string) =>
+  invoke<string | null>("gallery_export_image", { id, suggestedName });
 
 export const galleryDir = () => invoke<string>("gallery_dir");

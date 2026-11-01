@@ -367,13 +367,16 @@ export const comfyui: ProviderDefinition = {
           method: "POST",
           body: JSON.stringify({ prompt: workflow, client_id: clientId }),
           headers: { "Content-Type": "application/json" },
-          signal: ctx.signal,
+          // No abort signal: a submit cut off mid-flight may still have queued the
+          // job, with no id left to cancel it by. A cancel is handled once it returns.
         }),
       ).catch((err) => {
         throw describeQueueError(err);
       });
       promptId = queued.prompt_id;
       socketState.promptId = promptId;
+      if (ctx.signal.aborted) onAbort();
+      ctx.signal.throwIfAborted();
 
       const entry = await waitForOutputs(config, promptId, socket ? socketState : null, ctx.signal);
       const outputs = collectOutputs(entry, Boolean(params.workflow));

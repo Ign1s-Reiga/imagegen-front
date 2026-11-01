@@ -279,6 +279,10 @@ export const useAgent = create<AgentState>()((set, get) => {
                 streamed += delta;
                 patch(entryId, { text: streamed });
               },
+              onRestart: () => {
+                streamed = "";
+                patch(entryId, { text: "" });
+              },
             },
             config,
           );

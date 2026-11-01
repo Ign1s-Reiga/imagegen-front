@@ -12,6 +12,15 @@ function request(config: ConnectionConfig, init: HttpOptions = {}): HttpOptions 
   return { ...init, headers };
 }
 
+/**
+ * Options for downloading an output. The token goes only to Replicate's own API
+ * (its files endpoint needs it); any other host, which a model can choose,
+ * gets a plain request so the token never leaves Replicate.
+ */
+function outputRequest(config: ConnectionConfig, url: string, init: HttpOptions): HttpOptions {
+  return new URL(url).origin === new URL(API).origin ? request(config, init) : init;
+}
+
 interface ModelInfo {
   latest_version?: { id: string; openapi_schema?: Record<string, unknown> };
 }
@@ -92,7 +101,6 @@ async function createPrediction(
   model: string,
   versionId: string | undefined,
   input: Record<string, unknown>,
-  signal: AbortSignal,
 ): Promise<Prediction> {
   const post = (url: string, body: unknown) =>
     httpJson<Prediction>(
@@ -101,7 +109,8 @@ async function createPrediction(
         method: "POST",
         body: JSON.stringify(body),
         headers: { "Content-Type": "application/json", Prefer: "wait=5" },
-        signal,
+        // No abort signal: a submit cut off mid-flight may still have queued the
+        // job, with no id left to cancel it by. A cancel is handled once it returns.
       }),
     );
   const { owner, name, version } = parseModel(model);
@@ -187,8 +196,10 @@ export const replicate: ProviderDefinition = {
     }
     const input = mergeExtraJson(mapToSchema(props, params, refs), params.options.extra);
 
-    let prediction = await createPrediction(config, model, versionId, input, ctx.signal);
+    let prediction = await createPrediction(config, model, versionId, input);
     const cancel = () => void http(prediction.urls.cancel, request(config, { method: "POST" })).catch(() => {});
+    if (ctx.signal.aborted) cancel();
+    ctx.signal.throwIfAborted();
     ctx.signal.addEventListener("abort", cancel, { once: true });
 
     try {
@@ -220,7 +231,7 @@ export const replicate: ProviderDefinition = {
         const data = url.startsWith("data:") ? parseDataUri(url) : null;
         const image = data
           ? { bytes: data.bytes, mime: sniffImageMime(data.bytes, data.mime) }
-          : await httpImage(url, request(config, { signal: ctx.signal }));
+          : await httpImage(url, outputRequest(config, url, { signal: ctx.signal }));
         images.push({ ...image, seed: "seed" in input ? params.seed : null });
       }
       return { images, model, info: { predictionId: prediction.id } };
