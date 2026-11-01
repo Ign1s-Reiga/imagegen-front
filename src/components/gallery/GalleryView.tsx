@@ -2,9 +2,9 @@
 
 import { FolderOpen, Search, Star, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { imageSrc, listGenerations, type GenerationRecord, type ImageRecord } from "@/lib/gallery";
+import { imageSrc, listGenerationRange, type GenerationRecord, type ImageRecord } from "@/lib/gallery";
 import { openGalleryFolder } from "@/lib/image-actions";
 import { connectionLabel } from "@/providers/registry";
 import { useApp } from "@/store/app";
@@ -13,6 +13,16 @@ import { ImageActionBar } from "../ImageActionBar";
 import { Button, IconButton, Segmented, cx } from "../ui";
 
 const PAGE = 60;
+
+interface GalleryResult {
+  key: string;
+  listKey: string;
+  generations: GenerationRecord[];
+  hasMore: boolean;
+  error: string | null;
+}
+
+const EMPTY_RESULT: GalleryResult = { key: "", listKey: "", generations: [], hasMore: false, error: null };
 
 interface Tile {
   generation: GenerationRecord;
@@ -92,11 +102,9 @@ export function GalleryView() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "favorites">("all");
   const [pages, setPages] = useState(1);
-  const [result, setResult] = useState<{ key: string; generations: GenerationRecord[]; error: string | null }>({
-    key: "",
-    generations: [],
-    error: null,
-  });
+  const [result, setResult] = useState<GalleryResult>(EMPTY_RESULT);
+  // The latest result, for the effect to append to without depending on it.
+  const latest = useRef<GalleryResult>(EMPTY_RESULT);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,20 +112,47 @@ export function GalleryView() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const requestKey = JSON.stringify([query, filter, pages, galleryVersion]);
+  // What is listed; a change here starts over from the newest generation.
+  const listKey = JSON.stringify([query, filter, galleryVersion]);
+  const requestKey = JSON.stringify([listKey, pages]);
   useEffect(() => {
     let cancelled = false;
-    listGenerations({ limit: PAGE * pages, search: query, favoritesOnly: filter === "favorites" })
-      .then((generations) => !cancelled && setResult({ key: requestKey, generations, error: null }))
-      .catch((err) => !cancelled && setResult((r) => ({ ...r, key: requestKey, error: String(err) })));
+    const prev = latest.current;
+    const wanted = PAGE * pages;
+    // Show more only fetches the next page and appends it.
+    const from = prev.listKey === listKey && !prev.error ? Math.min(prev.generations.length, wanted) : 0;
+    const kept = prev.generations.slice(0, from);
+    const done = (next: GalleryResult) => {
+      if (cancelled) return;
+      latest.current = next;
+      setResult(next);
+    };
+    if (from === wanted) {
+      // Fewer pages than are loaded (the search box resets pages before its query settles).
+      const hasMore = prev.generations.length > wanted || prev.hasMore;
+      void Promise.resolve().then(() => done({ key: requestKey, listKey, generations: kept, hasMore, error: null }));
+      return () => {
+        cancelled = true;
+      };
+    }
+    listGenerationRange({ search: query, favoritesOnly: filter === "favorites" }, from, wanted - from)
+      .then((batch) =>
+        done({
+          key: requestKey,
+          listKey,
+          generations: [...kept, ...batch],
+          hasMore: batch.length === wanted - from,
+          error: null,
+        }),
+      )
+      .catch((err) => done({ ...prev, key: requestKey, listKey, error: String(err) }));
     return () => {
       cancelled = true;
     };
-  }, [query, filter, pages, requestKey]);
+  }, [query, filter, pages, listKey, requestKey]);
 
-  const { generations, error } = result;
+  const { generations, error, hasMore } = result;
   const loading = result.key !== requestKey;
-  const hasMore = generations.length === PAGE * pages;
 
   const tiles = useMemo<Tile[]>(
     () =>

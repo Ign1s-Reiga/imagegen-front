@@ -93,6 +93,25 @@ export async function saveGeneration(
 
 export const listGenerations = (query: ListQuery = {}) => invoke<GenerationRecord[]>("gallery_list", { query });
 
+/** The most rows gallery_list returns per call (it clamps larger limits). */
+const MAX_LIST = 500;
+
+/** Lists `count` generations from `offset`, in as many calls as gallery_list's cap needs. */
+export async function listGenerationRange(
+  query: Omit<ListQuery, "offset" | "limit">,
+  offset: number,
+  count: number,
+): Promise<GenerationRecord[]> {
+  const out: GenerationRecord[] = [];
+  while (out.length < count) {
+    const limit = Math.min(MAX_LIST, count - out.length);
+    const batch = await listGenerations({ ...query, offset: offset + out.length, limit });
+    out.push(...batch);
+    if (batch.length < limit) break;
+  }
+  return out;
+}
+
 export const deleteGeneration = (id: string) => invoke<void>("gallery_delete_generation", { id });
 
 export const deleteImage = (id: string) => invoke<void>("gallery_delete_image", { id });
