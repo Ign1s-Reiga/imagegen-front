@@ -58,6 +58,8 @@ export interface GenerateResult {
   /** Model actually used, when the provider reports it. */
   model?: string;
   info?: Record<string, unknown>;
+  /** Things the user should know about a run that still succeeded, such as a setting the model ignored. */
+  notices?: string[];
 }
 
 export interface Progress {

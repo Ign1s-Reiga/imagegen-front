@@ -40,6 +40,12 @@ interface ModelsResponse {
 /** How long a generation waits for the model list before going out unfitted. */
 const MODEL_LIST_TIMEOUT_MS = 15_000;
 
+/** Options the user picks that a model may not take, with the names shown for them. */
+const USER_SETTINGS = [
+  ["quality", "Quality"],
+  ["background", "Background"],
+] as const;
+
 /** Each image model's supported parameters, per API base; read once a session. */
 const imageParams = new Map<string, Promise<Map<string, SupportedImageParams>>>();
 
@@ -285,10 +291,16 @@ export const openrouter: ProviderDefinition = {
       }
     }
     if (!images.length) throw new Error(`${model} returned no images.`);
+    // Settings the user picked that the model does not take; the seed is not one
+    // of them, as it is set on every run whether or not the user chose it.
+    const ignored = USER_SETTINGS.filter(([key]) => fitted.dropped.includes(key)).map(([key, label]) => `${label} (${o[key]})`);
     return {
       images,
       model,
       info: { usage: responses.map((r) => r.usage), ...(fitted.dropped.length ? { notSent: fitted.dropped } : {}) },
+      notices: ignored.length
+        ? [`${model} does not take ${ignored.join(" or ")}, so ${ignored.length === 1 ? "it was" : "they were"} not sent.`]
+        : undefined,
     };
   },
 
