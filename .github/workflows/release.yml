@@ -1,0 +1,105 @@
+name: Release
+
+# Push a version tag (e.g. `v0.2.0`) to build the Windows installers and attach
+# them to a draft GitHub Release. Publish the draft to make it public. Can also
+# be run by hand from the Actions tab, which builds the version in
+# tauri.conf.json under an `app-v<version>` tag.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The installers are named after tauri.conf.json's version, not the tag, so
+      # a tag pushed without bumping the version would publish v0.3.0 holding
+      # 0.2.0 installers. Fail before spending a build on it.
+      - name: Check the tag matches the app version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          pkg=$(node -p "require('./package.json').version")
+          cargo=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)
+          echo "tag $tag, tauri.conf.json $conf, package.json $pkg, Cargo.toml $cargo"
+          if [ "$tag" != "$conf" ] || [ "$tag" != "$pkg" ] || [ "$tag" != "$cargo" ]; then
+            echo "::error::Tag v$tag does not match the version in tauri.conf.json, package.json and Cargo.toml."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # The same content the "Generate release notes" button produces, so the
+      # draft arrives with its changelog filled in.
+      - name: Generate the changelog
+        id: notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          fallback="See the assets below to download and install this version."
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            # Read-only: returns the notes for a tag without creating a release.
+            body=$(gh api "repos/${{ github.repository }}/releases/generate-notes" \
+              -f tag_name="${{ github.ref_name }}" --jq '.body' || true)
+          else
+            # A manual run has no tag to compare against.
+            body=""
+          fi
+
+          if [ -z "$body" ]; then
+            echo "No generated notes; using the placeholder."
+            body="$fallback"
+          fi
+
+          # A unique delimiter: the body is Markdown from PR titles and could
+          # otherwise contain the terminator and cut itself short.
+          {
+            echo "body<<CHANGELOG_EOF_4c9e1d"
+            echo "$body"
+            echo "CHANGELOG_EOF_4c9e1d"
+          } >> "$GITHUB_OUTPUT"
+
+      # tauri-action runs beforeBuildCommand (pnpm build -> ../out), bundles the
+      # app and uploads the installers to the release.
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'app-v__VERSION__' }}
+          releaseName: "ImageGen v__VERSION__"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
