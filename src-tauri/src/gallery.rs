@@ -311,7 +311,7 @@ pub async fn gallery_list(
          FROM generations g
          WHERE (?1 IS NULL OR g.prompt LIKE '%' || ?1 || '%' ESCAPE '\\')
            AND (?2 = 0 OR EXISTS (SELECT 1 FROM images i WHERE i.generation_id = g.id AND i.favorite = 1))
-         ORDER BY created_at DESC
+         ORDER BY created_at DESC, id DESC
          LIMIT ?3 OFFSET ?4",
     )?;
     let escaped = search.map(|s| {
