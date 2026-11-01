@@ -160,8 +160,11 @@ interface AppState {
   saveConnection(connection: Connection, secrets: Record<string, string | null>): Promise<void>;
   removeConnection(id: string): Promise<void>;
   loadChoices(connectionId: string): Promise<void>;
-  /** Finds which `perModel` options a model takes; read once per model. */
-  loadModelOptions(connectionId: string, model: string): Promise<void>;
+  /**
+   * Finds which `perModel` options a model takes; read once per model. A failed
+   * read is tried again up to `retries` times, a few seconds apart.
+   */
+  loadModelOptions(connectionId: string, model: string, retries?: number): Promise<void>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
   importWorkflow(file: File): Promise<SavedWorkflow | null>;
   saveWorkflow(workflow: SavedWorkflow): Promise<void>;
@@ -276,6 +279,10 @@ function formFor(
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** How often, and how far apart, a failed per-model options read is retried. */
+export const MODEL_OPTIONS_RETRIES = 2;
+const MODEL_OPTIONS_RETRY_MS = 3_000;
 
 export const useApp = create<AppState>()((set, get) => {
   /** Writes the current form into `forms` (shared part + active connection). */
@@ -487,7 +494,7 @@ export const useApp = create<AppState>()((set, get) => {
       }
     },
 
-    async loadModelOptions(connectionId, model) {
+    async loadModelOptions(connectionId, model, retries = 0) {
       const connection = get().connections.find((c) => c.id === connectionId);
       if (!connection || !isImageConnection(connection) || !model) return;
       const def = provider(connection.kind);
@@ -504,8 +511,13 @@ export const useApp = create<AppState>()((set, get) => {
       try {
         setKeys(await def.modelOptionKeys(await resolveConfig(connection), model, AbortSignal.timeout(20_000)));
       } catch {
-        // Hidden until a later call reads it successfully.
+        // Hidden until a later call reads it successfully. Nothing else would
+        // make that call while the same model stays selected, so retry here.
         setKeys(undefined);
+        if (retries > 0) {
+          const delay = MODEL_OPTIONS_RETRY_MS * 2 ** (MODEL_OPTIONS_RETRIES - retries);
+          setTimeout(() => void get().loadModelOptions(connectionId, model, retries - 1), delay);
+        }
       }
     },
 
