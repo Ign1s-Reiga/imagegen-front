@@ -1,7 +1,5 @@
-import { save } from "@tauri-apps/plugin-dialog";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { extForMime } from "./bytes";
 import { exportImage, galleryDir, readImageBytes, type ImageRecord } from "./gallery";
 
 /** The clipboard only takes PNG, so other formats are re-encoded first. */
@@ -20,14 +18,7 @@ export async function copyImage(image: ImageRecord) {
 
 /** Returns false when the user closed the dialog. */
 export async function saveImageAs(image: ImageRecord, suggestedName: string): Promise<boolean> {
-  const ext = extForMime(image.mime);
-  const destination = await save({
-    defaultPath: `${suggestedName}.${ext}`,
-    filters: [{ name: "Image", extensions: [ext] }],
-  });
-  if (!destination) return false;
-  await exportImage(image.id, destination);
-  return true;
+  return (await exportImage(image.id, suggestedName)) !== null;
 }
 
 export const revealImage = (image: ImageRecord) => revealItemInDir(image.path);

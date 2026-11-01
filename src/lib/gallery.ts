@@ -123,7 +123,8 @@ export async function readImageBytes(id: string): Promise<Bytes> {
   return new Uint8Array(buffer);
 }
 
-export const exportImage = (id: string, destination: string) =>
-  invoke<void>("gallery_export_image", { id, destination });
+/** Asks where to save the image (the dialog runs in Rust) and copies it there. Returns null when the dialog was closed. */
+export const exportImage = (id: string, suggestedName: string) =>
+  invoke<string | null>("gallery_export_image", { id, suggestedName });
 
 export const galleryDir = () => invoke<string>("gallery_dir");

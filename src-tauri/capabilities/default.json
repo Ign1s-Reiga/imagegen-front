@@ -11,7 +11,6 @@
     },
     "websocket:default",
     "store:default",
-    "dialog:default",
     "opener:default",
     {
       "identifier": "opener:allow-open-path",

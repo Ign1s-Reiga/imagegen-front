@@ -14,9 +14,10 @@ use std::{
 use rusqlite::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, State,
+    AppHandle, Manager, State, WebviewWindow,
     ipc::{InvokeBody, Request},
 };
+use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{Error, Result};
 
@@ -434,16 +435,37 @@ pub async fn gallery_read_image(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Copies a stored image to a path the user picked in a save dialog.
+/// Asks where to save a stored image, then copies it there. The dialog runs
+/// here, as in `files::save_file`, so the webview never chooses the
+/// destination. Returns the chosen path, or `None` when the dialog was closed.
 #[tauri::command]
 pub async fn gallery_export_image(
+    window: WebviewWindow,
     id: String,
-    destination: String,
+    suggested_name: String,
     gallery: State<'_, Gallery>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let file_name = image_file_name(&gallery.conn(), &id)?;
-    fs::copy(gallery.path_of(&file_name), destination)?;
-    Ok(())
+    let ext = Path::new(&file_name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("png")
+        .to_owned();
+    let Some(path) = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_file_name(format!("{suggested_name}.{ext}"))
+        .add_filter("Image", &[ext.as_str()])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path
+        .into_path()
+        .map_err(|err| Error::msg(err.to_string()))?;
+    fs::copy(gallery.path_of(&file_name), &path)?;
+    Ok(Some(path_string(&path)))
 }
 
 #[tauri::command]
