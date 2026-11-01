@@ -5,6 +5,7 @@ import type { ChatModel, ChatService } from "./chat";
 import {
   fitImageBody,
   fitSeed,
+  passthroughOptions,
   fromOpenRouterCompletion,
   nearestAspectRatio,
   parseOpenRouterCredit,
@@ -98,18 +99,25 @@ interface EndpointsResponse {
 const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
 
 /**
- * The model's providers that accept `parameter` passed through to them, by
- * slug; undefined when the endpoints could not be read, so callers can tell
- * "no provider takes it" from "unknown".
+ * The keys each of the model's providers accepts passed through to it, by
+ * provider slug; undefined when the endpoints could not be read, so callers
+ * can tell "no provider takes it" from "unknown".
  */
-async function passthroughProviders(config: ConnectionConfig, model: string, parameter: string, signal: AbortSignal) {
+async function passthroughKeys(config: ConnectionConfig, model: string, signal: AbortSignal) {
   const url = `${base(config)}/images/models/${model}/endpoints`;
   const found = await sharedRead(imageEndpoints, url, config, signal);
   if (!found) return undefined;
-  return (found.endpoints ?? []).flatMap((e) =>
-    e.provider_slug && e.allowed_passthrough_parameters?.includes(parameter) ? [e.provider_slug] : [],
+  const entries = (found.endpoints ?? []).flatMap((e) =>
+    e.provider_slug ? [[e.provider_slug, e.allowed_passthrough_parameters ?? []] as const] : [],
   );
+  return Object.fromEntries(entries) as Record<string, string[]>;
 }
+
+/**
+ * The options sent as provider-specific pass-throughs: every perModel option
+ * is one, named by its key, and shown only for models whose providers list it.
+ */
+const passthroughFields = () => openrouter.options.filter((f) => f.perModel);
 
 interface ImagesResponse {
   data?: { b64_json?: string; media_type?: string }[];
@@ -239,11 +247,12 @@ export const openrouter: ProviderDefinition = {
   suggestedModels: [],
 
   async modelOptionKeys(config, model, signal) {
-    const slugs = await passthroughProviders(config, model, "moderation", signal ?? new AbortController().signal);
+    const accepted = await passthroughKeys(config, model, signal ?? new AbortController().signal);
     // Thrown rather than read as "none", so the store does not keep a failed
     // lookup and asks again next time.
-    if (!slugs) throw new Error(`Could not read the providers for ${model}.`);
-    return slugs.length ? ["moderation"] : [];
+    if (!accepted) throw new Error(`Could not read the providers for ${model}.`);
+    const listed = new Set(Object.values(accepted).flat());
+    return passthroughFields().flatMap((f) => (listed.has(f.key) ? [f.key] : []));
   },
 
   async listModels(config, signal) {
@@ -285,12 +294,15 @@ export const openrouter: ProviderDefinition = {
     // The input image to edit comes first, then the reference images.
     const inputs = [...(params.mode === "img2img" && params.initImage ? [params.initImage] : []), ...params.references];
     if (inputs.length > 16) throw new Error("OpenRouter takes at most 16 images per request.");
-    const moderation = o.moderation && o.moderation !== "auto" ? o.moderation : null;
+    // Provider-specific options set to something other than their default.
+    const passthrough = Object.fromEntries(
+      passthroughFields().flatMap((f) => (o[f.key] && o[f.key] !== f.default ? [[f.key, o[f.key]] as const] : [])),
+    );
     // The two reads do not depend on each other, so a cold cache waits for one
     // timeout at most rather than one after the other.
-    const [supported, moderationSlugs] = await Promise.all([
+    const [supported, accepted] = await Promise.all([
       imageParamsFor(config, model, ctx.signal),
-      moderation ? passthroughProviders(config, model, "moderation", ctx.signal) : undefined,
+      Object.keys(passthrough).length ? passthroughKeys(config, model, ctx.signal) : undefined,
     ]);
     // A model whose list leaves out input_references takes no images; without
     // this check fitImageBody would drop them and an edit would quietly become a
@@ -316,11 +328,10 @@ export const openrouter: ProviderDefinition = {
     }
     // Models reject parameters they do not take, such as a seed on FLUX 3 Image.
     const fitted = fitImageBody(body, supported);
-    // Moderation is not an image parameter but a pass-through some providers
-    // accept, so it goes in provider.options for those only.
-    if (moderation && moderationSlugs?.length) {
-      fitted.body.provider = { options: Object.fromEntries(moderationSlugs.map((slug) => [slug, { moderation }])) };
-    }
+    // Provider-specific options are not image parameters but pass-throughs some
+    // providers accept, so they go in provider.options for those only.
+    const routed = passthroughOptions(passthrough, accepted);
+    if (routed.options) fitted.body.provider = { options: routed.options };
     const seeded = "seed" in fitted.body;
     const seedOf = (i: number) => fitSeed(params.seed + i, supported?.seed);
 
@@ -352,9 +363,11 @@ export const openrouter: ProviderDefinition = {
     // Settings the user picked that the model does not take; the seed is not one
     // of them, as it is set on every run whether or not the user chose it.
     const ignored = USER_SETTINGS.filter(([key]) => fitted.dropped.includes(key)).map(([key, label]) => `${label} (${o[key]})`);
-    // Moderation set but not sent: left over from a model that takes it, or the
-    // providers could not be read.
-    if (moderation && !moderationSlugs?.length) ignored.push(`Moderation (${moderation})`);
+    // A provider-specific option set but not sent: left over from a model that
+    // takes it, or the providers could not be read.
+    for (const f of passthroughFields()) {
+      if (routed.unsent.includes(f.key)) ignored.push(`${f.label} (${o[f.key]})`);
+    }
     return {
       images,
       model,
