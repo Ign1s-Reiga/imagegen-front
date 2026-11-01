@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Workflows reference actions by major tag (e.g. @v7); this opens a PR when a
+  # new major version comes out.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

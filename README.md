@@ -40,6 +40,18 @@ cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 CI runs the Rust checks on Linux and Windows.
 
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds the Windows installers (NSIS `.exe` and `.msi`) and attaches them to a **draft** GitHub Release, so nothing is public until you publish the draft. The changelog is generated from the merged pull requests, which is the same text GitHub's "Generate release notes" button would give.
+
+To cut a release:
+
+1. Set the same version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, then refresh `Cargo.lock` (for example with `cargo check` in `src-tauri`). Merge that change.
+2. Tag `main` and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+3. When the workflow finishes, review the draft under Releases and publish it.
+
+If the tag doesn't match those three versions, the workflow stops before building, since the installers are named after the app version and not the tag. You can also run the workflow by hand from the Actions tab: it releases the current version under an `app-v<version>` tag.
+
 ## Where things are stored
 
 - **API keys** go to the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service on Linux) under `io.imagegen.desktop`. They are never written to disk by the app.
