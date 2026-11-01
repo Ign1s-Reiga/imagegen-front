@@ -16,7 +16,7 @@ import {
   type OpenRouterCompletion,
   type SupportedImageParams,
 } from "./openrouter-format";
-import type { ConnectionConfig, GeneratedImage, ProviderDefinition } from "./types";
+import type { ConnectionConfig, GeneratedImage, OptionField, ProviderDefinition } from "./types";
 
 const DEFAULT_BASE = "https://openrouter.ai/api/v1";
 
@@ -125,11 +125,51 @@ async function passthroughKeys(config: ConnectionConfig, model: string, signal: 
   return { ...accepted };
 }
 
+const OPTIONS: OptionField[] = [
+  {
+    key: "size",
+    label: "Size",
+    type: "select",
+    default: "custom",
+    options: [
+      { value: "custom", label: "Match width and height" },
+      { value: "auto", label: "Let the model choose" },
+    ],
+    help: "Sent as the nearest aspect ratio and a 1K, 2K or 4K tier; each model rounds to the sizes it makes.",
+  },
+  {
+    key: "quality",
+    label: "Quality",
+    type: "select",
+    default: "auto",
+    options: ["auto", "low", "medium", "high"].map((v) => ({ value: v, label: v })),
+    help: "Models without a quality setting ignore it.",
+  },
+  {
+    key: "background",
+    label: "Background",
+    type: "select",
+    default: "auto",
+    options: ["auto", "opaque", "transparent"].map((v) => ({ value: v, label: v })),
+    help: "Only some models can make transparent backgrounds.",
+  },
+  {
+    key: "moderation",
+    label: "Moderation",
+    type: "select",
+    default: "auto",
+    options: ["auto", "low"].map((v) => ({ value: v, label: v })),
+    help: "Low is less strict. This model's provider takes it as a provider-specific option.",
+    // Shown only for models whose provider lists moderation (OpenAI's).
+    perModel: true,
+  },
+];
+
 /**
  * The options sent as provider-specific pass-throughs: every perModel option
  * is one, named by its key, and shown only for models whose providers list it.
  */
-const passthroughFields = () => openrouter.options.filter((f) => f.perModel);
+const PASSTHROUGH_FIELDS = OPTIONS.filter((f) => f.perModel);
 
 interface ImagesResponse {
   data?: { b64_json?: string; media_type?: string }[];
@@ -200,45 +240,7 @@ export const openrouter: ProviderDefinition = {
       help: "Change only for a proxy.",
     },
   ],
-  options: [
-    {
-      key: "size",
-      label: "Size",
-      type: "select",
-      default: "custom",
-      options: [
-        { value: "custom", label: "Match width and height" },
-        { value: "auto", label: "Let the model choose" },
-      ],
-      help: "Sent as the nearest aspect ratio and a 1K, 2K or 4K tier; each model rounds to the sizes it makes.",
-    },
-    {
-      key: "quality",
-      label: "Quality",
-      type: "select",
-      default: "auto",
-      options: ["auto", "low", "medium", "high"].map((v) => ({ value: v, label: v })),
-      help: "Models without a quality setting ignore it.",
-    },
-    {
-      key: "background",
-      label: "Background",
-      type: "select",
-      default: "auto",
-      options: ["auto", "opaque", "transparent"].map((v) => ({ value: v, label: v })),
-      help: "Only some models can make transparent backgrounds.",
-    },
-    {
-      key: "moderation",
-      label: "Moderation",
-      type: "select",
-      default: "auto",
-      options: ["auto", "low"].map((v) => ({ value: v, label: v })),
-      help: "Low is less strict. This model's provider takes it as a provider-specific option.",
-      // Shown only for models whose provider lists moderation (OpenAI's).
-      perModel: true,
-    },
-  ],
+  options: OPTIONS,
   capabilities: () => ({
     img2img: true,
     mask: false,
@@ -264,7 +266,7 @@ export const openrouter: ProviderDefinition = {
     // lookup and asks again next time.
     if (!accepted) throw new Error(`Could not read the providers for ${model}.`);
     const listed = new Set(Object.values(accepted).flat());
-    return passthroughFields().flatMap((f) => (listed.has(f.key) ? [f.key] : []));
+    return PASSTHROUGH_FIELDS.flatMap((f) => (listed.has(f.key) ? [f.key] : []));
   },
 
   async listModels(config, signal) {
@@ -308,7 +310,7 @@ export const openrouter: ProviderDefinition = {
     if (inputs.length > 16) throw new Error("OpenRouter takes at most 16 images per request.");
     // Provider-specific options set to something other than their default.
     const passthrough = Object.fromEntries(
-      passthroughFields().flatMap((f) => (o[f.key] && o[f.key] !== f.default ? [[f.key, o[f.key]] as const] : [])),
+      PASSTHROUGH_FIELDS.flatMap((f) => (o[f.key] && o[f.key] !== f.default ? [[f.key, o[f.key]] as const] : [])),
     );
     // The two reads do not depend on each other, so a cold cache waits for one
     // timeout at most rather than one after the other.
@@ -377,8 +379,9 @@ export const openrouter: ProviderDefinition = {
     const ignored = USER_SETTINGS.filter(([key]) => fitted.dropped.includes(key)).map(([key, label]) => `${label} (${o[key]})`);
     // A provider-specific option set but not sent: left over from a model that
     // takes it, or the providers could not be read.
-    for (const f of passthroughFields()) {
-      if (routed.unsent.includes(f.key)) ignored.push(`${f.label} (${o[f.key]})`);
+    for (const key of routed.unsent) {
+      const field = PASSTHROUGH_FIELDS.find((f) => f.key === key);
+      if (field) ignored.push(`${field.label} (${o[key]})`);
     }
     return {
       images,
