@@ -185,3 +185,14 @@ test("isProviderSlug accepts provider slugs only", () => {
   for (const slug of ["openai", "black-forest-labs", "google-vertex", "z.ai"]) assert.ok(isProviderSlug(slug), slug);
   for (const slug of ["", "__proto__", "Prototype", "-x", "a/b"]) assert.ok(!isProviderSlug(slug), slug);
 });
+
+test("fitSeed treats a malformed range as none", () => {
+  const malformed = [
+    { type: "range", min: 0 },
+    { type: "range", min: 10, max: 5 },
+    { type: "range", min: "0", max: "9" },
+  ];
+  for (const spec of malformed) {
+    assert.equal(fitSeed(2 ** 32 + 5, spec as never), 5, JSON.stringify(spec));
+  }
+});
