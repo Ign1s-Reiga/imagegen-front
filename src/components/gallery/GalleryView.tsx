@@ -20,6 +20,8 @@ interface GalleryResult {
   generations: GenerationRecord[];
   hasMore: boolean;
   error: string | null;
+  /** The page count of the load that failed, for Try again to ask for again. */
+  failedPages?: number;
 }
 
 const EMPTY_RESULT: GalleryResult = { key: "", listKey: "", generations: [], hasMore: false, error: null };
@@ -137,7 +139,7 @@ export function GalleryView() {
       const hasMore = prev.generations.length > wanted || prev.hasMore;
       // Nothing was loaded here, so a failure from the last load still stands,
       // with its Try again.
-      void Promise.resolve().then(() => done({ key: requestKey, listKey, generations: kept, hasMore, error: prev.error }));
+      void Promise.resolve().then(() => done({ key: requestKey, listKey, generations: kept, hasMore, error: prev.error, failedPages: prev.failedPages }));
       return () => {
         cancelled = true;
       };
@@ -155,13 +157,22 @@ export function GalleryView() {
       // Keep only what belongs to this list: after a new search or filter fails, the
       // old query's images must not show under it. When a later page failed, the
       // pages already loaded stay, and Show more stays to try again.
-      .catch((err) => done({ key: requestKey, listKey, generations: kept, hasMore: from > 0, error: String(err) }));
+      .catch((err) =>
+        done({ key: requestKey, listKey, generations: kept, hasMore: from > 0, error: String(err), failedPages: pages }),
+      );
     return () => {
       cancelled = true;
     };
   }, [query, filter, pages, listKey, requestKey]);
 
   const { generations, error, hasMore } = result;
+  // Asks again for as many pages as the failed load wanted. The page count may
+  // have dropped since (the search box resets it), and with fewer pages than
+  // are loaded there would be nothing to fetch.
+  const retry = () => {
+    setPages((p) => Math.max(p, result.failedPages ?? p));
+    setAttempt((a) => a + 1);
+  };
   const loading = result.key !== requestKey;
 
   const tiles = useMemo<Tile[]>(
@@ -220,7 +231,7 @@ export function GalleryView() {
           {error && (
             <div className="flex items-center gap-3">
               <p className="text-danger">Could not read the gallery: {error}</p>
-              <Button variant="ghost" size="sm" onClick={() => setAttempt((a) => a + 1)} disabled={loading}>
+              <Button variant="ghost" size="sm" onClick={retry} disabled={loading}>
                 Try again
               </Button>
             </div>
