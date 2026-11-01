@@ -220,8 +220,12 @@ export function fitSeed(seed: number, spec: ImageParamSpec | undefined): number 
   return min + ((((seed - min) % span) + span) % span);
 }
 
-/** Whether `slug` looks like an OpenRouter provider slug, such as "openai" or "black-forest-labs". */
-export const isProviderSlug = (slug: string) => /^[a-z0-9][a-z0-9._-]*$/.test(slug);
+/**
+ * Whether `slug` looks like an OpenRouter provider slug: "openai",
+ * "black-forest-labs", or one with a region or tier such as
+ * "google-vertex/global" or "google-ai-studio/global/flex".
+ */
+export const isProviderSlug = (slug: string) => /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/.test(slug);
 
 /**
  * Sorts provider-specific option values onto the providers that accept them.
