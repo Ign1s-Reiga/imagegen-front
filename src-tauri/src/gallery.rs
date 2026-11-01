@@ -5,12 +5,13 @@
 //! generation and all of its images in a single transaction.
 
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use tauri::{
     AppHandle, Manager, State,
@@ -275,11 +276,6 @@ pub async fn gallery_list(
          ORDER BY created_at DESC
          LIMIT ?3 OFFSET ?4",
     )?;
-    let mut img_stmt = conn.prepare(
-        "SELECT id, idx, file_name, mime, width, height, seed, favorite
-         FROM images WHERE generation_id = ?1 ORDER BY idx",
-    )?;
-
     let escaped = search.map(|s| {
         s.replace('\\', "\\\\")
             .replace('%', "\\%")
@@ -310,26 +306,44 @@ pub async fn gallery_list(
         },
     )?;
 
-    let mut generations = Vec::new();
-    for row in rows {
-        let mut generation = row?;
-        let images = img_stmt.query_map(params![generation.id], |row| {
-            let file_name: String = row.get(2)?;
+    let mut generations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if generations.is_empty() {
+        return Ok(generations);
+    }
+
+    // Every page's images in one query rather than one per generation. The
+    // limit above keeps the id list well under SQLite's parameter cap.
+    let placeholders = vec!["?"; generations.len()].join(", ");
+    let mut img_stmt = conn.prepare(&format!(
+        "SELECT generation_id, id, idx, file_name, mime, width, height, seed, favorite
+         FROM images WHERE generation_id IN ({placeholders}) ORDER BY generation_id, idx"
+    ))?;
+    let mut by_generation: HashMap<String, Vec<ImageRecord>> = HashMap::new();
+    let images =
+        img_stmt.query_map(params_from_iter(generations.iter().map(|g| &g.id)), |row| {
+            let file_name: String = row.get(3)?;
             Ok(ImageRecord {
-                id: row.get(0)?,
-                generation_id: generation.id.clone(),
-                index: row.get(1)?,
+                generation_id: row.get(0)?,
+                id: row.get(1)?,
+                index: row.get(2)?,
                 path: path_string(&gallery.path_of(&file_name)),
                 file_name,
-                mime: row.get(3)?,
-                width: row.get(4)?,
-                height: row.get(5)?,
-                seed: row.get(6)?,
-                favorite: row.get::<_, i64>(7)? != 0,
+                mime: row.get(4)?,
+                width: row.get(5)?,
+                height: row.get(6)?,
+                seed: row.get(7)?,
+                favorite: row.get::<_, i64>(8)? != 0,
             })
         })?;
-        generation.images = images.collect::<rusqlite::Result<_>>()?;
-        generations.push(generation);
+    for image in images {
+        let image = image?;
+        by_generation
+            .entry(image.generation_id.clone())
+            .or_default()
+            .push(image);
+    }
+    for generation in &mut generations {
+        generation.images = by_generation.remove(&generation.id).unwrap_or_default();
     }
     Ok(generations)
 }
