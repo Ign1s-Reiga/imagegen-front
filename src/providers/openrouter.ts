@@ -209,7 +209,9 @@ export const openrouter: ProviderDefinition = {
       type: "select",
       default: "auto",
       options: ["auto", "low"].map((v) => ({ value: v, label: v })),
-      help: "Low is less strict. Sent only to providers that accept it (OpenAI's models); others leave it out.",
+      help: "Low is less strict. This model's provider takes it as a provider-specific option.",
+      // Shown only for models whose provider lists moderation (OpenAI's).
+      perModel: true,
     },
   ],
   capabilities: () => ({
@@ -230,6 +232,11 @@ export const openrouter: ProviderDefinition = {
   }),
   defaultModel: (config) => config.model || "",
   suggestedModels: [],
+
+  async modelOptionKeys(config, model, signal) {
+    const slugs = await passthroughProviders(config, model, "moderation", signal ?? new AbortController().signal);
+    return slugs.length ? ["moderation"] : [];
+  },
 
   async listModels(config, signal) {
     const list = await httpJson<ModelsResponse>(`${base(config)}/images/models`, request(config, { signal }));

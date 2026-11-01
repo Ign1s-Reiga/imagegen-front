@@ -97,6 +97,8 @@ interface Choices {
   schedulers?: string[];
   /** Combo choices for workflow inputs, keyed "ClassType.input". */
   inputs?: Record<string, string[]>;
+  /** The `perModel` options each model takes, keyed by model. */
+  modelOptions?: Record<string, string[]>;
   loading?: boolean;
   error?: string;
 }
@@ -158,6 +160,8 @@ interface AppState {
   saveConnection(connection: Connection, secrets: Record<string, string | null>): Promise<void>;
   removeConnection(id: string): Promise<void>;
   loadChoices(connectionId: string): Promise<void>;
+  /** Finds which `perModel` options a model takes; read once per model. */
+  loadModelOptions(connectionId: string, model: string): Promise<void>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
   importWorkflow(file: File): Promise<SavedWorkflow | null>;
   saveWorkflow(workflow: SavedWorkflow): Promise<void>;
@@ -478,6 +482,28 @@ export const useApp = create<AppState>()((set, get) => {
           loading: false,
           error: errorMessage(err),
         });
+      }
+    },
+
+    async loadModelOptions(connectionId, model) {
+      const connection = get().connections.find((c) => c.id === connectionId);
+      if (!connection || !isImageConnection(connection) || !model) return;
+      const def = provider(connection.kind);
+      if (!def.modelOptionKeys || get().choices[connectionId]?.modelOptions?.[model]) return;
+      const setKeys = (keys: string[] | undefined) =>
+        set((s) => {
+          const modelOptions = { ...s.choices[connectionId]?.modelOptions };
+          if (keys) modelOptions[model] = keys;
+          else delete modelOptions[model];
+          return { choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], modelOptions } } };
+        });
+      // Marked first, so a second call for the same model does not read again.
+      setKeys([]);
+      try {
+        setKeys(await def.modelOptionKeys(await resolveConfig(connection), model, AbortSignal.timeout(20_000)));
+      } catch {
+        // Hidden until a later call reads it successfully.
+        setKeys(undefined);
       }
     },
 

@@ -136,6 +136,7 @@ export function ParamsPanel() {
   const workflows = useApp((s) => s.workflows);
   const choices = useApp((s) => (connection ? s.choices[connection.id] : undefined));
   const loadChoices = useApp((s) => s.loadChoices);
+  const loadModelOptions = useApp((s) => s.loadModelOptions);
   const setInputFromFile = useApp((s) => s.setInputFromFile);
   const importWorkflow = useApp((s) => s.importWorkflow);
   const selectWorkflow = useApp((s) => s.selectWorkflow);
@@ -160,6 +161,16 @@ export function ParamsPanel() {
   const samplerId = useFieldId("sampler");
   const schedulerId = useFieldId("scheduler");
   const workflowId = useFieldId("workflow");
+
+  // Which per-model options (such as OpenRouter's moderation) the chosen model
+  // takes. Waits for typing in the model field to pause before looking it up.
+  const optionModel = connection ? form.model.trim() || provider(connection.kind).defaultModel(connection.config) : "";
+  const connectionId = connection?.id;
+  useEffect(() => {
+    if (!connectionId || !optionModel) return;
+    const timer = setTimeout(() => void loadModelOptions(connectionId, optionModel), 400);
+    return () => clearTimeout(timer);
+  }, [connectionId, optionModel, loadModelOptions]);
 
   if (!connection) {
     return (
@@ -550,6 +561,7 @@ export function ParamsPanel() {
 
         {def.options
           .filter((o) => !o.mode || o.mode === mode)
+          .filter((o) => !o.perModel || choices?.modelOptions?.[optionModel]?.includes(o.key))
           .map((option) => (
             <OptionInput
               key={option.key}
