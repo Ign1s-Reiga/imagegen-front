@@ -352,6 +352,9 @@ export const openrouter: ProviderDefinition = {
     // Settings the user picked that the model does not take; the seed is not one
     // of them, as it is set on every run whether or not the user chose it.
     const ignored = USER_SETTINGS.filter(([key]) => fitted.dropped.includes(key)).map(([key, label]) => `${label} (${o[key]})`);
+    // Moderation set but not sent: left over from a model that takes it, or the
+    // providers could not be read.
+    if (moderation && !moderationSlugs?.length) ignored.push(`Moderation (${moderation})`);
     return {
       images,
       model,
