@@ -211,11 +211,15 @@ export const openrouter: ProviderDefinition = {
     const inputs = [...(params.mode === "img2img" && params.initImage ? [params.initImage] : []), ...params.references];
     if (inputs.length > 16) throw new Error("OpenRouter takes at most 16 images per request.");
     const supported = await imageParamsFor(config, model, ctx.signal);
+    // A model whose list leaves out input_references takes no images; without
+    // this check fitImageBody would drop them and an edit would quietly become a
+    // new picture. With no list at all, the images are sent and OpenRouter judges.
     const refs = supported?.input_references;
-    if (inputs.length && refs?.type === "range" && inputs.length > refs.max) {
+    const maxInputs = !supported ? Infinity : !refs ? 0 : refs.type === "range" ? refs.max : Infinity;
+    if (inputs.length > maxInputs) {
       throw new Error(
-        refs.max
-          ? `${model} takes at most ${refs.max} input image${refs.max === 1 ? "" : "s"}, counting the image to edit.`
+        maxInputs
+          ? `${model} takes at most ${maxInputs} input image${maxInputs === 1 ? "" : "s"}, counting the image to edit.`
           : `${model} cannot take input images. Choose another model, or remove them.`,
       );
     }
