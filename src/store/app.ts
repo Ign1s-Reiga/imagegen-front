@@ -639,6 +639,7 @@ export const useApp = create<AppState>()((set, get) => {
         result.images,
       );
       set((s) => ({ recent: [record, ...s.recent], galleryVersion: s.galleryVersion + 1 }));
+      if (result.notices?.length) get().notify(result.notices.join(" "));
       // Providers book the charge shortly after the job finishes.
       setTimeout(() => void get().loadCredit(connection.id, { force: true }), 2500);
       return { record, images: result.images };
