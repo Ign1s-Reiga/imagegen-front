@@ -161,7 +161,9 @@ interface AppState {
   removeConnection(id: string): Promise<void>;
   loadChoices(connectionId: string): Promise<void>;
   /**
-   * Finds which `perModel` options a model takes, read once per model. A call
+   * Finds which `perModel` options a model takes, read once per model. Resolves
+   * true at once when there is nothing to learn (no such connection, or a
+   * backend without per-model options). A call
    * for a model already being read shares that read. Resolves true once the
    * model's options are known, false when the read failed and may succeed
    * later (nothing is kept, so a later call reads again). A failure that would
@@ -520,16 +522,19 @@ export const useApp = create<AppState>()((set, get) => {
       }
     },
 
-    loadModelOptions(connectionId, model) {
+    // Async, so anything thrown on the way (an unknown provider kind, say)
+    // rejects the promise rather than escaping the caller.
+    async loadModelOptions(connectionId, model) {
       const connection = get().connections.find((c) => c.id === connectionId);
-      if (!connection || !isImageConnection(connection) || !model) return Promise.resolve(false);
+      // Nothing to learn, now or later: resolves true, so nothing retries it.
+      if (!connection || !isImageConnection(connection) || !model) return true;
       const def = provider(connection.kind);
-      if (!def.modelOptionKeys) return Promise.resolve(false);
-      if (get().choices[connectionId]?.modelOptions?.[model]) return Promise.resolve(true);
+      if (!def.modelOptionKeys) return true;
+      if (get().choices[connectionId]?.modelOptions?.[model]) return true;
       const key = JSON.stringify([connectionId, model]);
       const missUntil = modelOptionMisses.get(key);
       if (missUntil !== undefined) {
-        if (Date.now() < missUntil) return Promise.resolve(true);
+        if (Date.now() < missUntil) return true;
         modelOptionMisses.delete(key);
       }
       const inFlight = modelOptionReads.get(key);
