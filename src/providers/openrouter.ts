@@ -36,6 +36,9 @@ interface ModelsResponse {
   }[];
 }
 
+/** How long a generation waits for the model list before going out unfitted. */
+const MODEL_LIST_TIMEOUT_MS = 15_000;
+
 /** Each image model's supported parameters, per API base; read once a session. */
 const imageParams = new Map<string, Promise<Map<string, SupportedImageParams>>>();
 
@@ -45,8 +48,10 @@ async function imageParamsFor(config: ConnectionConfig, model: string, signal: A
   if (!models) {
     // Shared by every run waiting on it, so no run's abort signal goes on it:
     // one cancel would otherwise fail the read for all of them, and they would
-    // go out unfitted.
-    models = httpJson<ModelsResponse>(`${key}/images/models`, request(config)).then(
+    // go out unfitted. A timeout instead, so a read that never answers cannot
+    // hold up every generation for the rest of the session.
+    const signal = AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS);
+    models = httpJson<ModelsResponse>(`${key}/images/models`, request(config, { signal })).then(
       (list) => new Map((list.data ?? []).flatMap((m) => (m.supported_parameters ? [[m.id, m.supported_parameters]] : []))),
     );
     imageParams.set(key, models);
