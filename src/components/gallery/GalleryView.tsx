@@ -120,15 +120,17 @@ export function GalleryView() {
     const prev = latest.current;
     const wanted = PAGE * pages;
     // Show more only fetches the next page and appends it.
-    const from = prev.listKey === listKey && !prev.error ? Math.min(prev.generations.length, wanted) : 0;
+    const sameList = prev.listKey === listKey && !prev.error;
+    const from = sameList ? Math.min(prev.generations.length, wanted) : 0;
     const kept = prev.generations.slice(0, from);
     const done = (next: GalleryResult) => {
       if (cancelled) return;
       latest.current = next;
       setResult(next);
     };
-    if (from === wanted) {
-      // Fewer pages than are loaded (the search box resets pages before its query settles).
+    // Nothing to fetch: fewer pages than are loaded (the search box resets pages
+    // before its query settles), or the list is already known to end sooner.
+    if (from === wanted || (sameList && !prev.hasMore)) {
       const hasMore = prev.generations.length > wanted || prev.hasMore;
       void Promise.resolve().then(() => done({ key: requestKey, listKey, generations: kept, hasMore, error: null }));
       return () => {
