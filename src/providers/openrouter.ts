@@ -1,5 +1,5 @@
 import { base64ToBytes, sniffImageMime, toDataUri } from "@/lib/bytes";
-import { httpJson, trimSlash, type HttpOptions } from "@/lib/http";
+import { abortError, httpJson, trimSlash, type HttpOptions } from "@/lib/http";
 
 import type { ChatModel, ChatService } from "./chat";
 import {
@@ -63,7 +63,7 @@ async function imageParamsFor(config: ConnectionConfig, model: string, signal: A
   // This run alone stops waiting when it is cancelled.
   let stop = () => {};
   const aborted = new Promise<never>((_, reject) => {
-    const onAbort = () => reject(signal.reason);
+    const onAbort = () => reject(abortError());
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
     stop = () => signal.removeEventListener("abort", onAbort);
