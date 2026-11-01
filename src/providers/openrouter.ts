@@ -5,6 +5,7 @@ import type { ChatModel, ChatService } from "./chat";
 import {
   fitImageBody,
   fitSeed,
+  modelPath,
   passthroughOptions,
   fromOpenRouterCompletion,
   nearestAspectRatio,
@@ -104,7 +105,10 @@ const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
  * can tell "no provider takes it" from "unknown".
  */
 async function passthroughKeys(config: ConnectionConfig, model: string, signal: AbortSignal) {
-  const url = `${base(config)}/images/models/${model}/endpoints`;
+  const path = modelPath(model);
+  // Not a model id, so no provider can take anything for it.
+  if (!path) return {};
+  const url = `${base(config)}/images/models/${path}/endpoints`;
   const found = await sharedRead(imageEndpoints, url, config, signal);
   if (!found) return undefined;
   const entries = (found.endpoints ?? []).flatMap((e) =>
