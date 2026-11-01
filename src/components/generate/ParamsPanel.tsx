@@ -7,7 +7,15 @@ import { useEffect, useRef, useState } from "react";
 import { boundInput, fieldKey, type SavedWorkflow, type WorkflowBinding } from "@/providers/comfy-workflow";
 import { provider } from "@/providers/registry";
 import type { OptionField } from "@/providers/types";
-import { activeConnection, activeWorkflow, capabilitiesFor, effectiveMode, useApp, type FormState } from "@/store/app";
+import {
+  MODEL_OPTIONS_RETRIES,
+  activeConnection,
+  activeWorkflow,
+  capabilitiesFor,
+  effectiveMode,
+  useApp,
+  type FormState,
+} from "@/store/app";
 
 import { PromptHelper } from "../PromptHelper";
 import { Button, Field, IconButton, NumberInput, Segmented, Select, TextArea, TextInput, cx, useFieldId } from "../ui";
@@ -172,7 +180,12 @@ export function ParamsPanel() {
   const connectionId = connection?.id;
   useEffect(() => {
     if (!connectionId || !optionModel) return;
-    const timer = setTimeout(() => void loadModelOptions(connectionId, optionModel), knownModel ? 0 : 800);
+    // A listed id is a real model, so a failed read of it is worth retrying; an
+    // unlisted one may be a typo, which would only fail again.
+    const timer = setTimeout(
+      () => void loadModelOptions(connectionId, optionModel, knownModel ? MODEL_OPTIONS_RETRIES : 0),
+      knownModel ? 0 : 800,
+    );
     return () => clearTimeout(timer);
   }, [connectionId, optionModel, knownModel, loadModelOptions]);
 
