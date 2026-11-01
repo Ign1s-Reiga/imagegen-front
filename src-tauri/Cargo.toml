@@ -1,6 +1,6 @@
 [package]
 name = "imagegen-front"
-version = "0.1.5"
+version = "0.1.6"
 description = "Desktop frontend for OpenAI, ComfyUI, RunPod, fal.ai, Replicate and A1111 image generation"
 authors = []
 license = ""
