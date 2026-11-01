@@ -101,6 +101,8 @@ async function createPrediction(
   model: string,
   versionId: string | undefined,
   input: Record<string, unknown>,
+  /** Checked between requests only; see post below. */
+  signal: AbortSignal,
 ): Promise<Prediction> {
   const post = (url: string, body: unknown) =>
     httpJson<Prediction>(
@@ -120,6 +122,8 @@ async function createPrediction(
     return await post(`${API}/models/${owner}/${name}/predictions`, { input });
   } catch (err) {
     if (!(err instanceof HttpError) || err.status !== 404 || !versionId) throw err;
+    // Nothing was queued yet, so a cancel can stop here without leaving a job behind.
+    signal.throwIfAborted();
     return post(`${API}/predictions`, { version: versionId, input });
   }
 }
@@ -196,7 +200,7 @@ export const replicate: ProviderDefinition = {
     }
     const input = mergeExtraJson(mapToSchema(props, params, refs), params.options.extra);
 
-    let prediction = await createPrediction(config, model, versionId, input);
+    let prediction = await createPrediction(config, model, versionId, input, ctx.signal);
     const cancel = () => void http(prediction.urls.cancel, request(config, { method: "POST" })).catch(() => {});
     if (ctx.signal.aborted) cancel();
     ctx.signal.throwIfAborted();
