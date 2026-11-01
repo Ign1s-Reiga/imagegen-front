@@ -1,5 +1,5 @@
 import { base64ToBytes, bytesToBase64, extForMime, sniffImageMime } from "@/lib/bytes";
-import { HttpError, http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
+import { HttpError, cancelOnAbort, http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
 
 import { applyWorkflow, buildComfyWorkflow, workflowCapabilities, type UploadedRefs } from "./comfy-workflow";
 import { parseRunpodMyself } from "./credit";
@@ -150,16 +150,14 @@ export const runpod: ProviderDefinition = {
         method: "POST",
         body: JSON.stringify({ input: { workflow, ...(images.length ? { images } : {}) } }),
         headers: { "Content-Type": "application/json" },
-        // No abort signal: a submit cut off mid-flight may still have queued the
-        // job, with no id left to cancel it by. A cancel is handled once it returns.
+        // No abort signal; a cancel is handled once this returns (see cancelOnAbort).
       }),
     );
 
-    const cancel = () =>
-      void http(`${endpointUrl(config)}/cancel/${job.id}`, request(config, { method: "POST" })).catch(() => {});
-    if (ctx.signal.aborted) cancel();
-    ctx.signal.throwIfAborted();
-    ctx.signal.addEventListener("abort", cancel, { once: true });
+    const stopCancel = cancelOnAbort(
+      ctx.signal,
+      () => void http(`${endpointUrl(config)}/cancel/${job.id}`, request(config, { method: "POST" })).catch(() => {}),
+    );
 
     try {
       let status = job;
@@ -198,7 +196,7 @@ export const runpod: ProviderDefinition = {
       }
       return { images: results, model, info: { jobId: job.id } };
     } finally {
-      ctx.signal.removeEventListener("abort", cancel);
+      stopCancel();
     }
   },
 };

@@ -1,7 +1,7 @@
 import WebSocket, { type Message } from "@tauri-apps/plugin-websocket";
 
 import { bytesToObjectUrl, type Bytes } from "@/lib/bytes";
-import { HttpError, abortError, http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
+import { HttpError, abortError, cancelOnAbort, http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
 
 import {
   SAVE_NODE_ID,
@@ -353,11 +353,7 @@ export const comfyui: ProviderDefinition = {
       console.warn("ComfyUI websocket unavailable, falling back to polling", err);
     }
 
-    let promptId: string | null = null;
-    const onAbort = () => {
-      if (promptId) void cancelPrompt(config, promptId);
-    };
-    ctx.signal.addEventListener("abort", onAbort, { once: true });
+    let stopCancel = () => {};
 
     try {
       ctx.onProgress({ stage: "queued", message: "Queuing" });
@@ -367,16 +363,14 @@ export const comfyui: ProviderDefinition = {
           method: "POST",
           body: JSON.stringify({ prompt: workflow, client_id: clientId }),
           headers: { "Content-Type": "application/json" },
-          // No abort signal: a submit cut off mid-flight may still have queued the
-          // job, with no id left to cancel it by. A cancel is handled once it returns.
+          // No abort signal; a cancel is handled once this returns (see cancelOnAbort).
         }),
       ).catch((err) => {
         throw describeQueueError(err);
       });
-      promptId = queued.prompt_id;
+      const promptId = queued.prompt_id;
       socketState.promptId = promptId;
-      if (ctx.signal.aborted) onAbort();
-      ctx.signal.throwIfAborted();
+      stopCancel = cancelOnAbort(ctx.signal, () => void cancelPrompt(config, promptId));
 
       const entry = await waitForOutputs(config, promptId, socket ? socketState : null, ctx.signal);
       const outputs = collectOutputs(entry, Boolean(params.workflow));
@@ -391,7 +385,7 @@ export const comfyui: ProviderDefinition = {
       }
       return { images, model };
     } finally {
-      ctx.signal.removeEventListener("abort", onAbort);
+      stopCancel();
       socketState.dispose();
       void socket?.disconnect().catch(() => {});
     }

@@ -1,5 +1,5 @@
 import { parseDataUri, sniffImageMime, toDataUri } from "@/lib/bytes";
-import { HttpError, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
+import { HttpError, cancelOnAbort, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
 
 import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type ImageRefs, type SchemaProps } from "./schema-input";
 import type { ConnectionConfig, GeneratedImage, InputImage, ProviderDefinition } from "./types";
@@ -111,8 +111,7 @@ async function createPrediction(
         method: "POST",
         body: JSON.stringify(body),
         headers: { "Content-Type": "application/json", Prefer: "wait=5" },
-        // No abort signal: a submit cut off mid-flight may still have queued the
-        // job, with no id left to cancel it by. A cancel is handled once it returns.
+        // No abort signal; a cancel is handled once this returns (see cancelOnAbort).
       }),
     );
   const { owner, name, version } = parseModel(model);
@@ -201,10 +200,8 @@ export const replicate: ProviderDefinition = {
     const input = mergeExtraJson(mapToSchema(props, params, refs), params.options.extra);
 
     let prediction = await createPrediction(config, model, versionId, input, ctx.signal);
-    const cancel = () => void http(prediction.urls.cancel, request(config, { method: "POST" })).catch(() => {});
-    if (ctx.signal.aborted) cancel();
-    ctx.signal.throwIfAborted();
-    ctx.signal.addEventListener("abort", cancel, { once: true });
+    const cancelUrl = prediction.urls.cancel;
+    const stopCancel = cancelOnAbort(ctx.signal, () => void http(cancelUrl, request(config, { method: "POST" })).catch(() => {}));
 
     try {
       while (prediction.status === "starting" || prediction.status === "processing") {
@@ -240,7 +237,7 @@ export const replicate: ProviderDefinition = {
       }
       return { images, model, info: { predictionId: prediction.id } };
     } finally {
-      ctx.signal.removeEventListener("abort", cancel);
+      stopCancel();
     }
   },
 };
