@@ -102,6 +102,8 @@ export function GalleryView() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "favorites">("all");
   const [pages, setPages] = useState(1);
+  // Bumped by Try again to repeat a load that failed.
+  const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<GalleryResult>(EMPTY_RESULT);
   // The latest result, for the effect to append to without depending on it.
   const latest = useRef<GalleryResult>(EMPTY_RESULT);
@@ -114,7 +116,7 @@ export function GalleryView() {
 
   // What is listed; a change here starts over from the newest generation.
   const listKey = JSON.stringify([query, filter, galleryVersion]);
-  const requestKey = JSON.stringify([listKey, pages]);
+  const requestKey = JSON.stringify([listKey, pages, attempt]);
   useEffect(() => {
     let cancelled = false;
     const prev = latest.current;
@@ -212,7 +214,14 @@ export function GalleryView() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {error && <p className="text-danger">Could not read the gallery: {error}</p>}
+          {error && (
+            <div className="flex items-center gap-3">
+              <p className="text-danger">Could not read the gallery: {error}</p>
+              <Button variant="ghost" size="sm" onClick={() => setAttempt((a) => a + 1)} disabled={loading}>
+                Try again
+              </Button>
+            </div>
+          )}
           {!loading && !error && tiles.length === 0 && (
             <div className="mx-auto mt-24 max-w-sm text-center">
               {query || filter === "favorites" ? (
