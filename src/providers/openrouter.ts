@@ -239,6 +239,13 @@ export const openrouter: ProviderDefinition = {
           : `${model} cannot take input images. Choose another model, or remove them.`,
       );
     }
+    // Edit-only models need at least one image, so say so here rather than as a 400.
+    const minInputs = refs?.type === "range" ? refs.min : 0;
+    if (inputs.length < minInputs) {
+      throw new Error(
+        `${model} needs at least ${minInputs} input image${minInputs === 1 ? "" : "s"}. Attach a reference image, or switch to image to image.`,
+      );
+    }
     if (inputs.length) {
       body.input_references = inputs.map((image) => ({ type: "image_url", image_url: { url: toDataUri(image.bytes, image.mime) } }));
     }
