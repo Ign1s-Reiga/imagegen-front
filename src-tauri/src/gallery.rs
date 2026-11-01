@@ -293,13 +293,19 @@ pub async fn gallery_commit(generation: NewGeneration, gallery: State<'_, Galler
     Ok(())
 }
 
+/// The most rows `gallery_list` returns per call. The webview's
+/// `listGenerationRange` (src/lib/gallery.ts) asks for at most this many and
+/// reads a shorter reply as the end of the list, so lowering it below the
+/// webview's `MAX_LIST` would cut listings short: change both together.
+const MAX_LIST_LIMIT: i64 = 500;
+
 #[tauri::command]
 pub async fn gallery_list(
     query: Option<ListQuery>,
     gallery: State<'_, Gallery>,
 ) -> Result<Vec<GenerationRecord>> {
     let query = query.unwrap_or_default();
-    let limit = query.limit.unwrap_or(60).clamp(1, 500);
+    let limit = query.limit.unwrap_or(60).clamp(1, MAX_LIST_LIMIT);
     let search = query
         .search
         .map(|s| s.trim().to_owned())
