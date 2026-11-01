@@ -99,6 +99,8 @@ export interface OptionField {
   help?: string;
   /** Only show in this mode. */
   mode?: Mode;
+  /** Only show for models that take it, as `ProviderDefinition.modelOptionKeys` reports. */
+  perModel?: boolean;
 }
 
 export interface Capabilities {
@@ -160,6 +162,8 @@ export interface ProviderDefinition extends ServiceDefinition {
   suggestedModels: string[];
   defaults?: Partial<Pick<GenerateParams, "steps" | "cfg" | "sampler" | "scheduler">>;
   listModels?: (config: ConnectionConfig, signal?: AbortSignal) => Promise<ModelChoice[]>;
+  /** Which `perModel` options a model takes, by key. */
+  modelOptionKeys?: (config: ConnectionConfig, model: string, signal?: AbortSignal) => Promise<string[]>;
   listSamplers?: (
     config: ConnectionConfig,
     signal?: AbortSignal,
