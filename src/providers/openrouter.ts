@@ -117,14 +117,15 @@ async function passthroughKeys(config: ConnectionConfig, model: string, signal: 
   // Slugs become object keys in provider.options, so only ones shaped like a
   // provider slug are kept; "__proto__" and the like never get that far.
   // A provider can serve a model from several endpoints; it takes a key if any
-  // of them lists it.
+  // of them lists it. No prototype, so a slug can only ever be an own key; the
+  // map is only read through Object.entries and Object.values.
   const accepted: Record<string, string[]> = Object.create(null);
   for (const e of found.endpoints ?? []) {
     if (!e.provider_slug || !isProviderSlug(e.provider_slug)) continue;
     const keys = (accepted[e.provider_slug] ??= []);
     for (const key of e.allowed_passthrough_parameters ?? []) if (!keys.includes(key)) keys.push(key);
   }
-  return { ...accepted };
+  return accepted;
 }
 
 const OPTIONS: OptionField[] = [
