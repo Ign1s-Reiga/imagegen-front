@@ -204,10 +204,19 @@ pub async fn gallery_write_image(
     })
 }
 
-/// File names come back from `gallery_write_image`; refuse anything that could
-/// point outside the images directory.
+/// File names come back from `gallery_write_image`, so accept only the shape it
+/// makes: a hyphenated lowercase UUID and one of its extensions. A denylist of
+/// separators and `..` would let through Windows names such as `C:x.png`, which
+/// `join` resolves outside the images directory.
+fn is_gallery_file_name(file_name: &str) -> bool {
+    file_name.split_once('.').is_some_and(|(stem, ext)| {
+        uuid::Uuid::try_parse(stem).is_ok_and(|id| id.hyphenated().to_string() == stem)
+            && sanitize_ext(ext) == ext
+    })
+}
+
 fn check_file_name(file_name: &str) -> Result<()> {
-    if file_name.contains(['/', '\\']) || file_name.contains("..") {
+    if !is_gallery_file_name(file_name) {
         return Err(Error::msg(format!("invalid file name: {file_name}")));
     }
     Ok(())
@@ -499,4 +508,41 @@ pub async fn gallery_export_image(
 #[tauri::command]
 pub fn gallery_dir(gallery: State<'_, Gallery>) -> String {
     path_string(&gallery.images_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_gallery_file_name;
+
+    #[test]
+    fn accepts_names_gallery_write_image_makes() {
+        let name = format!("{}.png", uuid::Uuid::new_v4());
+        assert!(is_gallery_file_name(&name));
+        assert!(is_gallery_file_name(
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.jpg"
+        ));
+        assert!(is_gallery_file_name(
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.webp"
+        ));
+    }
+
+    #[test]
+    fn refuses_anything_else() {
+        for name in [
+            "",
+            "C:evil.png",
+            r"C:\Windows\evil.png",
+            "../67e55044-10b1-426f-9247-bb680e5fe0c8.png",
+            "sub/67e55044-10b1-426f-9247-bb680e5fe0c8.png",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.exe",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.PNG",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8.png.png",
+            "67E55044-10B1-426F-9247-BB680E5FE0C8.png",
+            "{67e55044-10b1-426f-9247-bb680e5fe0c8}.png",
+            "urn:uuid:67e55044-10b1-426f-9247-bb680e5fe0c8.png",
+        ] {
+            assert!(!is_gallery_file_name(name), "{name}");
+        }
+    }
 }
