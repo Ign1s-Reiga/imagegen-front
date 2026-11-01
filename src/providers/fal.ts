@@ -1,5 +1,5 @@
 import { parseDataUri, sniffImageMime, toDataUri } from "@/lib/bytes";
-import { HttpError, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
+import { HttpError, cancelOnAbort, http, httpImage, httpJson, sleep, type HttpOptions } from "@/lib/http";
 
 import { parseFalBilling } from "./credit";
 import { collectImageUrls, mapToSchema, mergeExtraJson, resolveProps, type ImageRefs, type SchemaProps } from "./schema-input";
@@ -171,14 +171,10 @@ export const fal: ProviderDefinition = {
         method: "POST",
         body: JSON.stringify(input),
         headers: { "Content-Type": "application/json" },
-        // No abort signal: a submit cut off mid-flight may still have queued the
-        // job, with no id left to cancel it by. A cancel is handled once it returns.
+        // No abort signal; a cancel is handled once this returns (see cancelOnAbort).
       }),
     );
-    const cancel = () => void http(submit.cancel_url, request(config, { method: "PUT" })).catch(() => {});
-    if (ctx.signal.aborted) cancel();
-    ctx.signal.throwIfAborted();
-    ctx.signal.addEventListener("abort", cancel, { once: true });
+    const stopCancel = cancelOnAbort(ctx.signal, () => void http(submit.cancel_url, request(config, { method: "PUT" })).catch(() => {}));
 
     try {
       for (;;) {
@@ -217,7 +213,7 @@ export const fal: ProviderDefinition = {
       }
       return { images, model, info: { requestId: submit.request_id, timings: result.timings } };
     } finally {
-      ctx.signal.removeEventListener("abort", cancel);
+      stopCancel();
     }
   },
 };

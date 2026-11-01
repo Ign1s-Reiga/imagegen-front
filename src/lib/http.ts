@@ -92,6 +92,23 @@ export function abortError(): DOMException {
   return new DOMException("Generation canceled", "AbortError");
 }
 
+/**
+ * Cancels a submitted job on the backend when `signal` aborts. Submit requests
+ * go out without the signal: one cut off mid-flight may still have queued the
+ * job, with no id left to cancel it by. So this is called once the submit
+ * returns, and a cancel pressed meanwhile is handled here: the job is
+ * cancelled at once and this throws, ending the run. Returns a function that
+ * stops listening, for the run's `finally`.
+ */
+export function cancelOnAbort(signal: AbortSignal, cancel: () => void): () => void {
+  if (signal.aborted) {
+    cancel();
+    signal.throwIfAborted();
+  }
+  signal.addEventListener("abort", cancel, { once: true });
+  return () => signal.removeEventListener("abort", cancel);
+}
+
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
