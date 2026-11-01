@@ -141,12 +141,12 @@ export function GalleryView() {
       };
     }
     listGenerationRange({ search: query, favoritesOnly: filter === "favorites" }, from, wanted - from)
-      .then((batch) =>
+      .then((page) =>
         done({
           key: requestKey,
           listKey,
-          generations: [...kept, ...batch],
-          hasMore: batch.length === wanted - from,
+          generations: [...kept, ...page.generations],
+          hasMore: page.hasMore,
           error: null,
         }),
       )

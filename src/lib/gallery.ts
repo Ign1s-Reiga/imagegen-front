@@ -103,28 +103,33 @@ export async function saveGeneration(
   return { ...meta, images: records };
 }
 
-export const listGenerations = (query: ListQuery = {}) => invoke<GenerationRecord[]>("gallery_list", { query });
+/** One page of gallery_list, which may hold fewer rows than asked for (it caps the limit). */
+export interface GenerationPage {
+  generations: GenerationRecord[];
+  /** Whether rows follow this page. */
+  hasMore: boolean;
+}
+
+export const listGenerations = (query: ListQuery = {}) => invoke<GenerationPage>("gallery_list", { query });
 
 /**
- * Rows asked for per call: gallery_list's cap (MAX_LIST_LIMIT in gallery.rs).
- * Asking for no more than the cap means a short reply is the end of the list.
+ * Lists `count` generations from `offset`, in as many calls as gallery_list's
+ * cap needs. Each page says whether more follow, so the cap stays on the Rust
+ * side.
  */
-const MAX_LIST = 500;
-
-/** Lists `count` generations from `offset`, in as many calls as gallery_list's cap needs. */
 export async function listGenerationRange(
   query: Omit<ListQuery, "offset" | "limit">,
   offset: number,
   count: number,
-): Promise<GenerationRecord[]> {
-  const out: GenerationRecord[] = [];
-  while (out.length < count) {
-    const limit = Math.min(MAX_LIST, count - out.length);
-    const batch = await listGenerations({ ...query, offset: offset + out.length, limit });
-    out.push(...batch);
-    if (batch.length < limit) break;
+): Promise<GenerationPage> {
+  const generations: GenerationRecord[] = [];
+  let hasMore = true;
+  while (hasMore && generations.length < count) {
+    const page = await listGenerations({ ...query, offset: offset + generations.length, limit: count - generations.length });
+    generations.push(...page.generations);
+    hasMore = page.hasMore;
   }
-  return out;
+  return { generations, hasMore };
 }
 
 export const deleteGeneration = (id: string) => invoke<void>("gallery_delete_generation", { id });

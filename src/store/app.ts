@@ -354,7 +354,9 @@ export const useApp = create<AppState>()((set, get) => {
       const backends = settings.connections.filter(isImageConnection);
       const active = backends.find((c) => c.id === settings.activeConnectionId) ?? backends[0] ?? null;
       const base: FormState = { ...BASE_FORM, ...settings.forms[GLOBAL_KEY] };
-      const recent = await listGenerations({ limit: 40 }).catch(() => []);
+      const recent = await listGenerations({ limit: 40 })
+        .then((page) => page.generations)
+        .catch(() => []);
       set({
         ready: true,
         connections: settings.connections,
