@@ -37,7 +37,10 @@ CREATE TABLE IF NOT EXISTS generations (
     params          TEXT NOT NULL,
     duration_ms     INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_generations_created_at ON generations (created_at DESC);
+-- Matches gallery_list's ORDER BY, ties included, so pages read in index
+-- order with no sort. Replaces the created_at-only index of 0.1.x.
+DROP INDEX IF EXISTS idx_generations_created_at;
+CREATE INDEX IF NOT EXISTS idx_generations_created_at_id ON generations (created_at DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS images (
     id            TEXT PRIMARY KEY,
@@ -299,6 +302,13 @@ pub async fn gallery_commit(generation: NewGeneration, gallery: State<'_, Galler
 /// webview's `MAX_LIST` would cut listings short: change both together.
 const MAX_LIST_LIMIT: i64 = 500;
 
+const LIST_SQL: &str = "SELECT id, created_at, provider, connection_name, model, mode, prompt, negative_prompt, params, duration_ms
+     FROM generations g
+     WHERE (?1 IS NULL OR g.prompt LIKE '%' || ?1 || '%' ESCAPE '\\')
+       AND (?2 = 0 OR EXISTS (SELECT 1 FROM images i WHERE i.generation_id = g.id AND i.favorite = 1))
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?3 OFFSET ?4";
+
 #[tauri::command]
 pub async fn gallery_list(
     query: Option<ListQuery>,
@@ -312,14 +322,7 @@ pub async fn gallery_list(
         .filter(|s| !s.is_empty());
 
     let conn = gallery.conn();
-    let mut gen_stmt = conn.prepare(
-        "SELECT id, created_at, provider, connection_name, model, mode, prompt, negative_prompt, params, duration_ms
-         FROM generations g
-         WHERE (?1 IS NULL OR g.prompt LIKE '%' || ?1 || '%' ESCAPE '\\')
-           AND (?2 = 0 OR EXISTS (SELECT 1 FROM images i WHERE i.generation_id = g.id AND i.favorite = 1))
-         ORDER BY created_at DESC, id DESC
-         LIMIT ?3 OFFSET ?4",
-    )?;
+    let mut gen_stmt = conn.prepare(LIST_SQL)?;
     let escaped = search.map(|s| {
         s.replace('\\', "\\\\")
             .replace('%', "\\%")
@@ -510,7 +513,25 @@ pub fn gallery_dir(gallery: State<'_, Gallery>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::is_gallery_file_name;
+    use super::{LIST_SQL, SCHEMA, is_gallery_file_name};
+
+    #[test]
+    fn list_reads_in_index_order_without_a_sort() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let plan = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {LIST_SQL}"))
+            .unwrap()
+            .query_map(rusqlite::params![None::<String>, 0, 60, 0], |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .join("\n");
+        assert!(plan.contains("idx_generations_created_at_id"), "{plan}");
+        assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+    }
 
     #[test]
     fn accepts_names_gallery_write_image_makes() {
