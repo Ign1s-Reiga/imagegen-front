@@ -149,14 +149,6 @@ test("fitImageBody sends the body as it is when the model is unknown", () => {
   assert.deepEqual(fitImageBody(body, undefined), { body, dropped: [] });
 });
 
-test("fitImageBody keeps numbers inside the range the model lists", () => {
-  const supported = { steps: { type: "range", min: 1, max: 50 } } as const;
-  const fit = (steps: number) => fitImageBody({ model: "m", prompt: "p", steps }, structuredClone(supported) as never).body.steps;
-  assert.equal(fit(80), 50);
-  assert.equal(fit(0), 1);
-  assert.equal(fit(20), 20);
-});
-
 test("fitSeed wraps a seed into the model's range, or 32 bits without one", () => {
   const range = { type: "range", min: 0, max: 2147483647 } as const;
   assert.equal(fitSeed(3_000_000_000, range), 3_000_000_000 - 2147483648);

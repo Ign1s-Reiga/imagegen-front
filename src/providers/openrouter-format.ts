@@ -183,10 +183,6 @@ export function fitImageBody(
       dropped.push(key);
       continue;
     }
-    if (spec.type === "range" && typeof value === "number") {
-      out[key] = Math.min(spec.max, Math.max(spec.min, value));
-      continue;
-    }
     if (spec.type !== "enum" || typeof value !== "string" || spec.values.includes(value)) {
       out[key] = value;
       continue;
