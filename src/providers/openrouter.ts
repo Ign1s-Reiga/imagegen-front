@@ -3,12 +3,14 @@ import { httpJson, trimSlash, type HttpOptions } from "@/lib/http";
 
 import type { ChatModel, ChatService } from "./chat";
 import {
+  fitImageBody,
   fromOpenRouterCompletion,
   nearestAspectRatio,
   parseOpenRouterCredit,
   resolutionTier,
   toOpenRouterMessages,
   type OpenRouterCompletion,
+  type SupportedImageParams,
 } from "./openrouter-format";
 import type { ConnectionConfig, GeneratedImage, ProviderDefinition } from "./types";
 
@@ -26,7 +28,30 @@ function request(config: ConnectionConfig, init: HttpOptions = {}, key = config.
 }
 
 interface ModelsResponse {
-  data?: { id: string; name?: string; architecture?: { input_modalities?: string[] } }[];
+  data?: {
+    id: string;
+    name?: string;
+    architecture?: { input_modalities?: string[] };
+    supported_parameters?: SupportedImageParams;
+  }[];
+}
+
+/** Each image model's supported parameters, per API base; read once a session. */
+const imageParams = new Map<string, Promise<Map<string, SupportedImageParams>>>();
+
+function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
+  const key = base(config);
+  let models = imageParams.get(key);
+  if (!models) {
+    models = httpJson<ModelsResponse>(`${key}/images/models`, request(config, { signal })).then(
+      (list) => new Map((list.data ?? []).flatMap((m) => (m.supported_parameters ? [[m.id, m.supported_parameters]] : []))),
+    );
+    imageParams.set(key, models);
+    // A failed read is tried again next time rather than kept.
+    models.catch(() => imageParams.delete(key));
+  }
+  // Without the list the request goes out unfitted, as before.
+  return models.then((m) => m.get(model)).catch(() => undefined);
 }
 
 interface ImagesResponse {
@@ -171,7 +196,7 @@ export const openrouter: ProviderDefinition = {
     const model = params.model || openrouter.defaultModel(config);
     if (!model) throw new Error("Choose an image model in the Model field. OpenRouter has no default.");
     const o = params.options;
-    const body: Record<string, unknown> = { model, prompt: params.prompt };
+    const body: Record<string, unknown> = { model, prompt: params.prompt, seed: params.seed };
     if (o.size !== "auto") {
       body.aspect_ratio = nearestAspectRatio(params.width, params.height);
       body.resolution = resolutionTier(params.width, params.height);
@@ -185,9 +210,21 @@ export const openrouter: ProviderDefinition = {
     // The input image to edit comes first, then the reference images.
     const inputs = [...(params.mode === "img2img" && params.initImage ? [params.initImage] : []), ...params.references];
     if (inputs.length > 16) throw new Error("OpenRouter takes at most 16 images per request.");
+    const supported = await imageParamsFor(config, model, ctx.signal);
+    const refs = supported?.input_references;
+    if (inputs.length && refs?.type === "range" && inputs.length > refs.max) {
+      throw new Error(
+        refs.max
+          ? `${model} takes at most ${refs.max} input image${refs.max === 1 ? "" : "s"}, counting the image to edit.`
+          : `${model} cannot take input images. Choose another model, or remove them.`,
+      );
+    }
     if (inputs.length) {
       body.input_references = inputs.map((image) => ({ type: "image_url", image_url: { url: toDataUri(image.bytes, image.mime) } }));
     }
+    // Models reject parameters they do not take, such as a seed on FLUX 3 Image.
+    const fitted = fitImageBody(body, supported);
+    const seeded = "seed" in fitted.body;
 
     ctx.onProgress({ stage: "running", message: `Waiting for ${model}` });
     // Many image models make one image per request and reject n > 1, so each
@@ -198,7 +235,7 @@ export const openrouter: ProviderDefinition = {
           `${base(config)}/images`,
           request(config, {
             method: "POST",
-            body: JSON.stringify({ ...body, seed: (params.seed + i) % 2 ** 32 }),
+            body: JSON.stringify(seeded ? { ...fitted.body, seed: (params.seed + i) % 2 ** 32 } : fitted.body),
             signal: ctx.signal,
           }),
         ),
@@ -210,11 +247,15 @@ export const openrouter: ProviderDefinition = {
       for (const item of response.data ?? []) {
         if (!item.b64_json) continue;
         const bytes = base64ToBytes(item.b64_json);
-        images.push({ bytes, mime: sniffImageMime(bytes, item.media_type), seed: (params.seed + i) % 2 ** 32 });
+        images.push({ bytes, mime: sniffImageMime(bytes, item.media_type), seed: seeded ? (params.seed + i) % 2 ** 32 : null });
       }
     }
     if (!images.length) throw new Error(`${model} returned no images.`);
-    return { images, model, info: { usage: responses.map((r) => r.usage) } };
+    return {
+      images,
+      model,
+      info: { usage: responses.map((r) => r.usage), ...(fitted.dropped.length ? { notSent: fitted.dropped } : {}) },
+    };
   },
 
   chat,
