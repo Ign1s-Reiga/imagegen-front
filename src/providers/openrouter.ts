@@ -285,7 +285,13 @@ export const openrouter: ProviderDefinition = {
     // The input image to edit comes first, then the reference images.
     const inputs = [...(params.mode === "img2img" && params.initImage ? [params.initImage] : []), ...params.references];
     if (inputs.length > 16) throw new Error("OpenRouter takes at most 16 images per request.");
-    const supported = await imageParamsFor(config, model, ctx.signal);
+    const moderation = o.moderation && o.moderation !== "auto" ? o.moderation : null;
+    // The two reads do not depend on each other, so a cold cache waits for one
+    // timeout at most rather than one after the other.
+    const [supported, moderationSlugs] = await Promise.all([
+      imageParamsFor(config, model, ctx.signal),
+      moderation ? passthroughProviders(config, model, "moderation", ctx.signal) : undefined,
+    ]);
     // A model whose list leaves out input_references takes no images; without
     // this check fitImageBody would drop them and an edit would quietly become a
     // new picture. With no list at all, the images are sent and OpenRouter judges.
@@ -312,11 +318,8 @@ export const openrouter: ProviderDefinition = {
     const fitted = fitImageBody(body, supported);
     // Moderation is not an image parameter but a pass-through some providers
     // accept, so it goes in provider.options for those only.
-    if (o.moderation && o.moderation !== "auto") {
-      const slugs = (await passthroughProviders(config, model, "moderation", ctx.signal)) ?? [];
-      if (slugs.length) {
-        fitted.body.provider = { options: Object.fromEntries(slugs.map((slug) => [slug, { moderation: o.moderation }])) };
-      }
+    if (moderation && moderationSlugs?.length) {
+      fitted.body.provider = { options: Object.fromEntries(moderationSlugs.map((slug) => [slug, { moderation }])) };
     }
     const seeded = "seed" in fitted.body;
     const seedOf = (i: number) => fitSeed(params.seed + i, supported?.seed);
