@@ -296,11 +296,18 @@ pub async fn gallery_commit(generation: NewGeneration, gallery: State<'_, Galler
     Ok(())
 }
 
-/// The most rows `gallery_list` returns per call. The webview's
-/// `listGenerationRange` (src/lib/gallery.ts) asks for at most this many and
-/// reads a shorter reply as the end of the list, so lowering it below the
-/// webview's `MAX_LIST` would cut listings short: change both together.
+/// The most rows `gallery_list` returns per call. Callers need not know it:
+/// each page says whether more rows follow.
 const MAX_LIST_LIMIT: i64 = 500;
+
+/// One page of `gallery_list`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationPage {
+    generations: Vec<GenerationRecord>,
+    /// Whether rows follow this page, however many it was capped to.
+    has_more: bool,
+}
 
 const LIST_SQL: &str = "SELECT id, created_at, provider, connection_name, model, mode, prompt, negative_prompt, params, duration_ms
      FROM generations g
@@ -313,7 +320,7 @@ const LIST_SQL: &str = "SELECT id, created_at, provider, connection_name, model,
 pub async fn gallery_list(
     query: Option<ListQuery>,
     gallery: State<'_, Gallery>,
-) -> Result<Vec<GenerationRecord>> {
+) -> Result<GenerationPage> {
     let query = query.unwrap_or_default();
     let limit = query.limit.unwrap_or(60).clamp(1, MAX_LIST_LIMIT);
     let search = query
@@ -332,7 +339,8 @@ pub async fn gallery_list(
         params![
             escaped,
             query.favorites_only as i64,
-            limit,
+            // One row past the page tells whether more follow.
+            limit + 1,
             query.offset.max(0)
         ],
         |row| {
@@ -354,8 +362,13 @@ pub async fn gallery_list(
     )?;
 
     let mut generations = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = generations.len() as i64 > limit;
+    generations.truncate(limit as usize);
     if generations.is_empty() {
-        return Ok(generations);
+        return Ok(GenerationPage {
+            generations,
+            has_more,
+        });
     }
 
     // Every page's images in one query rather than one per generation. The
@@ -392,7 +405,10 @@ pub async fn gallery_list(
     for generation in &mut generations {
         generation.images = by_generation.remove(&generation.id).unwrap_or_default();
     }
-    Ok(generations)
+    Ok(GenerationPage {
+        generations,
+        has_more,
+    })
 }
 
 #[tauri::command]
