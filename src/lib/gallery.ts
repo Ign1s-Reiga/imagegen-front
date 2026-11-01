@@ -63,31 +63,43 @@ export async function saveGeneration(
   images: GeneratedImage[],
 ): Promise<GenerationRecord> {
   const records: ImageRecord[] = [];
-  for (const [index, image] of images.entries()) {
-    const mime = sniffImageMime(image.bytes, image.mime);
-    const written = await invoke<{ fileName: string; path: string }>("gallery_write_image", image.bytes, {
-      headers: { "x-ext": extForMime(mime) },
+  try {
+    for (const [index, image] of images.entries()) {
+      const mime = sniffImageMime(image.bytes, image.mime);
+      const written = await invoke<{ fileName: string; path: string }>("gallery_write_image", image.bytes, {
+        headers: { "x-ext": extForMime(mime) },
+      });
+      const record: ImageRecord = {
+        id: crypto.randomUUID(),
+        generationId: meta.id,
+        index,
+        fileName: written.fileName,
+        path: written.path,
+        mime,
+        width: null,
+        height: null,
+        seed: safeSeed(image.seed),
+        favorite: false,
+      };
+      // Tracked before anything else can fail, so the catch below removes it.
+      records.push(record);
+      const size = await imageDimensions(image.bytes, mime);
+      record.width = size?.width ?? null;
+      record.height = size?.height ?? null;
+    }
+    await invoke("gallery_commit", {
+      generation: {
+        ...meta,
+        images: records.map(({ id, fileName, mime, width, height, seed }) => ({ id, fileName, mime, width, height, seed })),
+      },
     });
-    const size = await imageDimensions(image.bytes, mime);
-    records.push({
-      id: crypto.randomUUID(),
-      generationId: meta.id,
-      index,
-      fileName: written.fileName,
-      path: written.path,
-      mime,
-      width: size?.width ?? null,
-      height: size?.height ?? null,
-      seed: safeSeed(image.seed),
-      favorite: false,
-    });
+  } catch (err) {
+    // Files written before the failure would otherwise sit on disk with no row.
+    if (records.length) {
+      await invoke("gallery_discard_images", { fileNames: records.map((r) => r.fileName) }).catch(() => {});
+    }
+    throw err;
   }
-  await invoke("gallery_commit", {
-    generation: {
-      ...meta,
-      images: records.map(({ id, fileName, mime, width, height, seed }) => ({ id, fileName, mime, width, height, seed })),
-    },
-  });
   return { ...meta, images: records };
 }
 

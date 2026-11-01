@@ -204,17 +204,45 @@ pub async fn gallery_write_image(
     })
 }
 
+/// File names come back from `gallery_write_image`; refuse anything that could
+/// point outside the images directory.
+fn check_file_name(file_name: &str) -> Result<()> {
+    if file_name.contains(['/', '\\']) || file_name.contains("..") {
+        return Err(Error::msg(format!("invalid file name: {file_name}")));
+    }
+    Ok(())
+}
+
+/// Removes files written by `gallery_write_image` for a generation that was
+/// never committed, so a failed save leaves nothing behind. Files that belong
+/// to a committed image are kept.
+#[tauri::command]
+pub async fn gallery_discard_images(
+    file_names: Vec<String>,
+    gallery: State<'_, Gallery>,
+) -> Result<()> {
+    for name in &file_names {
+        check_file_name(name)?;
+    }
+    let orphans = {
+        let conn = gallery.conn();
+        let mut stmt = conn.prepare("SELECT 1 FROM images WHERE file_name = ?1")?;
+        let mut orphans = Vec::new();
+        for name in file_names {
+            if !stmt.exists(params![name])? {
+                orphans.push(name);
+            }
+        }
+        orphans
+    };
+    gallery.remove_files(&orphans);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn gallery_commit(generation: NewGeneration, gallery: State<'_, Gallery>) -> Result<()> {
     for image in &generation.images {
-        // File names come back from gallery_write_image; refuse anything that
-        // could point outside the images directory.
-        if image.file_name.contains(['/', '\\']) || image.file_name.contains("..") {
-            return Err(Error::msg(format!(
-                "invalid file name: {}",
-                image.file_name
-            )));
-        }
+        check_file_name(&image.file_name)?;
     }
 
     let mut conn = gallery.conn();
