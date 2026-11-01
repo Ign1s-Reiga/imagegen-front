@@ -65,6 +65,8 @@ export interface ChatRequest {
   signal?: AbortSignal;
   /** Called with each piece of reply text as it arrives. */
   onText?: (delta: string) => void;
+  /** Called when the reply is started over; text passed to onText so far is void. */
+  onRestart?: () => void;
 }
 
 export type StopReason = "end" | "tool_use" | "max_tokens" | "refusal" | "other";

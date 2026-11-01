@@ -91,6 +91,8 @@ const chat: ChatService = {
         return await stream(request, config);
       } catch (err) {
         if (err instanceof Anthropic.APIError || request.signal?.aborted || attempt >= 2) throw describe(err);
+        // The retry streams its own text; what the failed attempt streamed is dropped.
+        request.onRestart?.();
       }
     }
   },
