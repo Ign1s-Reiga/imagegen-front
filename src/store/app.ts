@@ -169,10 +169,10 @@ interface AppState {
    * if asked again soon, such as a timeout (nothing is kept, so a later call
    * reads again, and the panel retries). A failure that asking again soon
    * would not fix resolves true and is remembered: an unknown model for ten
-   * minutes, a rejected key or no credit for a minute and for every model of
-   * the connection. Within that time a call resolves true without reading;
+   * minutes, no credit or no permission for a minute, and a rejected key for
+   * a minute and for every model of the connection. Within that time a call resolves true without reading;
    * nothing reads again when it runs out, only the next call (a change of
-   * model or connection, say). Saving the connection forgets both. A read
+   * model or connection, say). Saving the connection forgets them all. A read
    * from before the connection was saved or deleted is not kept.
    */
   loadModelOptions(connectionId: string, model: string): Promise<boolean>;
@@ -296,16 +296,19 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
  * would not fix, or undefined for one that might (a timeout, a server error).
  * A failure about the model itself (a model the backend does not know, 404,
  * or a request it rejects, 400 or 422) is kept for that model, for ten
- * minutes. One about the account (a rejected key, no credit or no permission:
- * 401, 402, 403) is kept for every model of the connection, since any other
- * would fail the same way, but only for a minute, since the user may fix it
- * outside the app (more credit, say). Remembered means not read again on a
- * call within that time; nothing reads it again by itself when it runs out.
+ * minutes. A rejected key (401) is kept for every model of the connection,
+ * since any other would fail the same way. No credit or no permission (402,
+ * 403) can be about this model alone (one the key may not use, say), so they
+ * are kept for that model only. All three for only a minute, since the user
+ * may fix them outside the app (more credit, say). Remembered means not read
+ * again on a call within that time; nothing reads it again by itself when it
+ * runs out.
  */
 function missFor(err: unknown): { ttl: number; account: boolean } | undefined {
   if (!(err instanceof HttpError)) return undefined;
   if ([400, 404, 422].includes(err.status)) return { ttl: 10 * 60_000, account: false };
-  if ([401, 402, 403].includes(err.status)) return { ttl: 60_000, account: true };
+  if (err.status === 401) return { ttl: 60_000, account: true };
+  if ([402, 403].includes(err.status)) return { ttl: 60_000, account: false };
   return undefined;
 }
 
@@ -318,7 +321,7 @@ const modelOptionReads = new Map<string, { connection: Connection; read: Promise
 
 /**
  * Models whose read failed in a way asking again would not fix (by connection
- * and model, or by connection alone for an account failure), with the
+ * and model, or by connection alone for a rejected key), with the
  * connection it failed on and when to forget that: not asked about again for a
  * while (each pause on a typo would otherwise read it again), but not kept for
  * good either, so a model the backend adds later is found. Saving the
