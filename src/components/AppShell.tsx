@@ -31,7 +31,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => notify(null), 5000);
+    // Long enough to read: 5 seconds, plus time for a long message (such as
+    // a list of workflow names and an error) at about 15 characters a
+    // second, up to 20 seconds.
+    const timer = setTimeout(() => notify(null), Math.min(20_000, Math.max(5000, notice.length * 70)));
     return () => clearTimeout(timer);
   }, [notice, notify]);
 
