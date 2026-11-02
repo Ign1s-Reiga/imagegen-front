@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useApp } from "@/store/app";
 
 import { TopBar } from "./TopBar";
+import { isModalOpen } from "./ui";
 
 /** Loads app state once and frames every route with the top bar. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -43,7 +44,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && pathname === "/") {
         // A dialog (the full error, the workflow or mask editor) covers the
         // form, so the shortcut would start a run the user cannot see begin.
-        if (document.querySelector('[aria-modal="true"]')) return;
+        if (isModalOpen()) return;
         e.preventDefault();
         void useApp.getState().generate();
       }

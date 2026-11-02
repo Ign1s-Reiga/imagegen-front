@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { MAX_BRUSH, ZOOM_LEVELS, usePixel, type Tool } from "@/pixel/store";
 
+import { isModalOpen } from "../ui";
 import { AiPanel } from "./AiPanel";
 import { DocBar, saveSprite } from "./DocBar";
 import { LayersPanel } from "./LayersPanel";
@@ -17,6 +18,9 @@ const TOOL_KEYS = Object.fromEntries(TOOLS.map((t) => [t.key.toLowerCase(), t.to
 function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Under a dialog (New sprite, Export PNG) the sprite is out of sight, so
+      // nothing here runs: not the AI, a save, an undo or a tool key.
+      if (isModalOpen()) return;
       const s = usePixel.getState();
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();

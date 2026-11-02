@@ -33,6 +33,21 @@ export const Button = forwardRef<
   );
 });
 
+let openModals = 0;
+
+/** Whether a modal is open: page-wide shortcuts do nothing under one. */
+export const isModalOpen = () => openModals > 0;
+
+/** Counts the component as an open modal for `isModalOpen` while it is mounted. */
+export function useModal() {
+  useEffect(() => {
+    openModals++;
+    return () => {
+      openModals--;
+    };
+  }, []);
+}
+
 /**
  * Puts focus back where it was when the component mounted, on unmount: a
  * modal takes focus, and without this closing it leaves focus on the page
@@ -66,6 +81,7 @@ export function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  useModal();
   useRestoreFocus();
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();

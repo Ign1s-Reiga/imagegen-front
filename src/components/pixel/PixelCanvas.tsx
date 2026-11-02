@@ -18,6 +18,8 @@ import {
 } from "@/pixel/raster";
 import { ZOOM_LEVELS, usePixel, type Tool } from "@/pixel/store";
 
+import { isModalOpen } from "../ui";
+
 type Stroke =
   | { kind: "paint"; buffer: Uint32Array; last: [number, number]; color: number }
   | { kind: "shape"; tool: "line" | "rect"; base: Uint32Array; buffer: Uint32Array; start: [number, number]; color: number }
@@ -247,7 +249,8 @@ export function PixelCanvas() {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || isTyping(e.target)) return;
+      // Space presses a focused button in a dialog; it pans only the canvas.
+      if (e.code !== "Space" || isTyping(e.target) || isModalOpen()) return;
       e.preventDefault();
       if (!spaceDown.current) {
         spaceDown.current = true;
