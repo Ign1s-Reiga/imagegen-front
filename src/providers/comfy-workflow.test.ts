@@ -251,6 +251,16 @@ test("two loaders with the same reference number both get its image", () => {
   assert.equal(applied["12"].inputs.image, "r1.png");
 });
 
+test("the same image attached twice is uploaded once", async () => {
+  const sent: string[] = [];
+  const names = await uploadReferences([image("a.png", 1), image("copy-of-a.png", 1)], async (_img, name) => {
+    sent.push(name);
+    return `uploads/${name}`;
+  });
+  assert.equal(sent.length, 1);
+  assert.deepEqual(names, [`uploads/${sent[0]}`, `uploads/${sent[0]}`]);
+});
+
 test("uploads run at once and still come back in attachment order", async () => {
   let inFlight = 0;
   let most = 0;

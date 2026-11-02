@@ -277,9 +277,18 @@ async function prepareWorkflow(
     // Named by content and never overwriting: a file already there under that
     // name is this same image (ComfyUI keeps it rather than adding a copy),
     // and a different one is renamed rather than replaced.
-    refs.references = await uploadReferences(params.references, (image, name) =>
-      uploadImage(config, image, ctx.signal, { name, overwrite: false }),
-    );
+    // A failed upload stops the others, rather than leaving them to finish
+    // writing to the server after the error is shown.
+    const uploads = new AbortController();
+    const signal = AbortSignal.any([ctx.signal, uploads.signal]);
+    try {
+      refs.references = await uploadReferences(params.references, (image, name) =>
+        uploadImage(config, image, signal, { name, overwrite: false }),
+      );
+    } catch (err) {
+      uploads.abort();
+      throw err;
+    }
   }
   if (params.workflow) {
     return { workflow: applyWorkflow(params.workflow, params, refs), model: params.model || undefined };
