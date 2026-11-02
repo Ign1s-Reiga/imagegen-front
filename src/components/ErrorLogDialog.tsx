@@ -23,16 +23,18 @@ export function ErrorLogDialog({ title, text, onClose }: { title: string; text: 
     return () => window.clearTimeout(timer);
   }, [copied]);
 
-  const copy = () => {
-    navigator.clipboard.writeText(text).then(
-      () => setCopied(true),
-      // The webview can refuse the clipboard; say so rather than leave the
-      // user to paste whatever was there before.
-      (err: unknown) => {
-        setCopied(false);
-        notify(`Could not copy the error: ${err instanceof Error ? err.message : String(err)}`);
-      },
-    );
+  const copy = async () => {
+    // The webview can refuse the clipboard, or not have the API at all (which
+    // throws before any promise); say so rather than leave the user to paste
+    // whatever was there before.
+    try {
+      if (!navigator.clipboard) throw new Error("the clipboard is not available here");
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch (err) {
+      setCopied(false);
+      notify(`Could not copy the error: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   return (
@@ -47,7 +49,7 @@ export function ErrorLogDialog({ title, text, onClose }: { title: string; text: 
         {text}
       </pre>
       <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
-        <Button onClick={copy}>
+        <Button onClick={() => void copy()}>
           {copied ? <Check size={14} /> : <Copy size={14} />}
           {copied ? "Copied" : "Copy"}
         </Button>
