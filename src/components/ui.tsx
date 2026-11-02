@@ -67,10 +67,11 @@ export function useRestoreFocus() {
 
 /**
  * A modal over a dimmed backdrop: it focuses its first control on open and
- * gives focus back to what had it on close, and
- * Escape or a press on the backdrop closes it. The Escape listener runs first
- * and stops there, so a page shortcut on Escape does not fire too. `className`
- * sizes and lays out the panel.
+ * gives focus back to what had it on close, and Escape or a press on the
+ * backdrop closes it. The Escape listener is on the window's capture phase and
+ * stops propagation, so elements and bubbling listeners (such as the pixel
+ * page clearing its selection) never see that Escape; other window capture
+ * listeners still do. `className` sizes and lays out the panel.
  */
 export function Dialog({
   label,
