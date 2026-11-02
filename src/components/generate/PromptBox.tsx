@@ -111,7 +111,7 @@ export function PromptBox({
   // are attached and it still cannot run, a warning.
   const blocked = warning ?? (count > 0 ? problem : null);
   const hint =
-    blocked ??
+    warning ??
     problem ??
     (count
       ? `${count} reference image${count === 1 ? "" : "s"}, sent in this order`
