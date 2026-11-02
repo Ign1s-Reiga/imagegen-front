@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { PALETTE_PRESETS } from "@/pixel/color";
 import { MAX_SIDE, clampSide } from "@/pixel/doc";
@@ -8,27 +8,14 @@ import { exportPng, type ExportOptions } from "@/pixel/files";
 import { newSprite, usePixel } from "@/pixel/store";
 import { useApp } from "@/store/app";
 
-import { Button, Field, NumberInput, Segmented, Select, TextInput, cx, useFieldId } from "../ui";
+import { Button, Dialog as Modal, Field, NumberInput, Segmented, Select, TextInput, cx, useFieldId } from "../ui";
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.querySelector<HTMLElement>("input, select, button")?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/55" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className="w-[400px] rounded-[6px] bg-panel p-5 shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
-        <h2 className="mb-4 text-[15px] font-medium text-fg">{title}</h2>
-        {children}
-      </div>
-    </div>
+    <Modal label={title} onClose={onClose} className="w-[400px] p-5">
+      <h2 className="mb-4 text-[15px] font-medium text-fg">{title}</h2>
+      {children}
+    </Modal>
   );
 }
 
