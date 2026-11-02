@@ -275,8 +275,9 @@ async function prepareWorkflow(
     const count = params.references.length;
     ctx.onProgress({ stage: "uploading", message: `Uploading ${count} reference image${count === 1 ? "" : "s"}` });
     // Named by content and never overwriting: a file already there under that
-    // name is this same image (ComfyUI keeps it rather than adding a copy),
-    // and a different one is renamed rather than replaced.
+    // name can only be this same image, and the name the server returns is
+    // what gets loaded either way. ComfyUI builds that compare uploads keep
+    // the file they have; older ones save a renamed copy ("name (1).png").
     // A failed upload stops the others, rather than leaving them to finish
     // writing to the server after the error is shown.
     const uploads = new AbortController();
