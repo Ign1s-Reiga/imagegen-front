@@ -34,7 +34,22 @@ export const Button = forwardRef<
 });
 
 /**
- * A modal over a dimmed backdrop: it focuses its first control on open, and
+ * Puts focus back where it was when the component mounted, on unmount: a
+ * modal takes focus, and without this closing it leaves focus on the page
+ * body, so a keyboard user starts over from the top.
+ */
+export function useRestoreFocus() {
+  useEffect(() => {
+    const previous = document.activeElement;
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, []);
+}
+
+/**
+ * A modal over a dimmed backdrop: it focuses its first control on open and
+ * gives focus back to what had it on close, and
  * Escape or a press on the backdrop closes it. The Escape listener runs first
  * and stops there, so a page shortcut on Escape does not fire too. `className`
  * sizes and lays out the panel.
@@ -51,6 +66,7 @@ export function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  useRestoreFocus();
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
     const onKey = (e: KeyboardEvent) => {
