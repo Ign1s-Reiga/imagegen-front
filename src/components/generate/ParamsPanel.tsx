@@ -175,8 +175,9 @@ export function ParamsPanel() {
   // Which per-model options (such as OpenRouter's moderation) the chosen model
   // takes. An id in the backend's model list is looked up at once. Any other
   // (typed by hand, or before the list loads) waits for typing to pause, so a
-  // partly typed name ("openai/gpt") is not looked up; a failed lookup is not
-  // kept, so nothing is left behind for it either.
+  // partly typed name ("openai/gpt") is not looked up. A lookup that failed in
+  // a way asking again would not fix is remembered by the store for a while
+  // (see loadModelOptions), so pausing on it again does not read it again.
   const optionModel = connection ? form.model.trim() || provider(connection.kind).defaultModel(connection.config) : "";
   const knownModel = Boolean(optionModel) && (choices?.models?.some((m) => m.value === optionModel) ?? false);
   const connectionId = connection?.id;
