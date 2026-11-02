@@ -7,6 +7,7 @@ import {
   detectBindings,
   referenceUploadName,
   unsupportedReferenceTitles,
+  upgradeReferenceBindings,
   uploadReferences,
   workflowCapabilities,
   workflowReferenceProblem,
@@ -306,6 +307,27 @@ test("a reference title past 4 is mapped to nothing and reported, not taken as t
   assert.equal(workflowCapabilities(wf, BASE_CAPS).img2imgOnly, false);
   assert.deepEqual(unsupportedReferenceTitles(graph), ["Reference 5 — Lighting", "Reference 12"]);
   assert.deepEqual(unsupportedReferenceTitles(mossGraph()), []);
+});
+
+test("a workflow saved before 0.2.0 has its Reference loaders mapped to references", () => {
+  const graph = mossGraph();
+  graph["12"] = { class_type: "LoadImage", inputs: { image: "input.png" }, _meta: { title: "Load Image" } };
+  // As 0.1.x saved it: the first LoadImage as the input image, the rest unmapped.
+  const old: SavedWorkflow = {
+    ...saved(graph),
+    bindings: [
+      ...saved(graph).bindings.filter((b) => !b.target.startsWith("reference") && b.target !== "initImage"),
+      { nodeId: "5", input: "image", target: "initImage" },
+    ],
+  };
+  const upgraded = upgradeReferenceBindings(old);
+  assert.equal(targetOf(upgraded, "5", "image"), "reference2");
+  assert.equal(workflowCapabilities(upgraded, BASE_CAPS).img2imgOnly, false);
+  // Bindings it does not concern, and workflows with nothing to move, are left alone.
+  const current = saved(graph);
+  assert.equal(upgradeReferenceBindings(current), current);
+  const plain = saved(img2imgGraph());
+  assert.equal(upgradeReferenceBindings(plain), plain);
 });
 
 /** An ordinary img2img graph with an input image and a mask. */
