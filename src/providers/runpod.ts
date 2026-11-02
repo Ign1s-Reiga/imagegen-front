@@ -4,7 +4,7 @@ import { HttpError, cancelOnAbort, http, httpImage, httpJson, sleep, trimSlash, 
 import {
   applyWorkflow,
   buildComfyWorkflow,
-  referenceUploadName,
+  uploadReferences,
   workflowCapabilities,
   type UploadedRefs,
 } from "./comfy-workflow";
@@ -148,12 +148,11 @@ export const runpod: ProviderDefinition = {
       // Named by content, as for ComfyUI, so a file a previous job left on the
       // worker under the same name is this same image. The worker writes them
       // under exactly these names, so nothing comes back to wait for.
-      const names = await Promise.all(params.references.map(referenceUploadName));
-      refs.references = names;
       // The same image attached twice goes into the job once, as the payload
       // has a size limit and both attachments load the one file.
-      params.references.forEach((image, i) => {
-        if (names.indexOf(names[i]) === i) images.push({ name: names[i], image: bytesToBase64(image.bytes) });
+      refs.references = await uploadReferences(params.references, async (image, name) => {
+        images.push({ name, image: bytesToBase64(image.bytes) });
+        return name;
       });
     }
     const workflow = params.workflow
