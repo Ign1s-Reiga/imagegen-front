@@ -4,7 +4,13 @@ import { ArrowLeftRight, Dices, FileUp, Paintbrush, RefreshCw, SlidersHorizontal
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-import { boundInput, fieldKey, type SavedWorkflow, type WorkflowBinding } from "@/providers/comfy-workflow";
+import {
+  boundInput,
+  fieldKey,
+  workflowReferenceSlots,
+  type SavedWorkflow,
+  type WorkflowBinding,
+} from "@/providers/comfy-workflow";
 import { provider } from "@/providers/registry";
 import type { OptionField } from "@/providers/types";
 import {
@@ -322,6 +328,7 @@ export function ParamsPanel() {
               references={form.references}
               limit={caps.references}
               backend={def.label}
+              slots={workflow ? workflowReferenceSlots(workflow).map((s) => s.titles[0] ?? "") : undefined}
             />
           </Field>
         )}

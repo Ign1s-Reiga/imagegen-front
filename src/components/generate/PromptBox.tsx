@@ -9,10 +9,24 @@ import { useApp } from "@/store/app";
 
 import { IconButton, cx } from "../ui";
 
-function Thumb({ image, index, onRemove }: { image: InputImage; index: number; onRemove: () => void }) {
+function Thumb({
+  image,
+  index,
+  slot,
+  onRemove,
+}: {
+  image: InputImage;
+  index: number;
+  /** The workflow input this image goes to, when a workflow names it. */
+  slot?: string;
+  onRemove: () => void;
+}) {
   const url = useImageUrl(image.bytes, image.mime) ?? undefined;
   return (
-    <li className="group relative size-14 shrink-0" title={`${image.name}, ${image.width} × ${image.height}`}>
+    <li
+      className="group relative size-14 shrink-0"
+      title={`${slot ? `${slot}: ` : ""}${image.name}, ${image.width} × ${image.height}`}
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={`Reference ${index + 1}: ${image.name}`} className="size-full rounded-[3px] bg-surround object-cover" />
       {/* Numbers make "the second image" in the prompt easy to match. */}
@@ -44,6 +58,7 @@ export function PromptBox({
   references,
   limit,
   backend,
+  slots,
 }: {
   id: string;
   value: string;
@@ -52,6 +67,12 @@ export function PromptBox({
   /** How many references the backend takes; 0 when it cannot use them. */
   limit: number;
   backend: string;
+  /**
+   * What each numbered attachment is for, from an imported workflow's
+   * Reference inputs: the first entry names where image 1 goes. Every one is
+   * needed; an empty entry is a number the workflow has no input for.
+   */
+  slots?: string[];
 }) {
   const addReferences = useApp((s) => s.addReferences);
   const removeReference = useApp((s) => s.removeReference);
@@ -62,7 +83,11 @@ export function PromptBox({
   const take = (files: File[]) => {
     if (!files.length) return;
     if (!limit) {
-      notify(`${backend} cannot use reference images. OpenAI, OpenRouter, fal.ai and Replicate can.`);
+      notify(
+        slots
+          ? "This workflow has no Reference inputs. Title a LoadImage node \"Reference 1\" and import it again, or map one in the workflow inputs."
+          : `${backend} cannot use reference images. OpenAI, OpenRouter, fal.ai and Replicate can.`,
+      );
       return;
     }
     void addReferences(files);
@@ -75,7 +100,17 @@ export function PromptBox({
         ? `${backend} takes at most ${limit} reference images; remove ${count - limit}.`
         : `${backend} cannot use reference images; remove them or switch backends.`
       : null;
-  const hint = warning ?? (count ? `${count} reference image${count === 1 ? "" : "s"}, sent in this order` : limit ? "Paste, drop or attach images for the model to follow" : "");
+  // A workflow names what each image is for, and needs all of them.
+  const needed = slots?.map((title, i) => ({ number: i + 1, title })).filter((s) => s.title && s.number > count) ?? [];
+  const hint =
+    warning ??
+    (needed.length
+      ? `Attach ${needed.map((s) => `${s.number}: ${s.title}`).join(", ")}`
+      : count
+        ? `${count} reference image${count === 1 ? "" : "s"}, sent in this order`
+        : limit
+          ? "Paste, drop or attach images for the model to follow"
+          : "");
 
   return (
     <div
@@ -99,7 +134,13 @@ export function PromptBox({
       {count > 0 && (
         <ul aria-label="Reference images" className="flex flex-wrap gap-2 px-2.5 pt-2.5">
           {references.map((image, i) => (
-            <Thumb key={`${i}-${image.name}-${image.bytes.length}`} image={image} index={i} onRemove={() => removeReference(i)} />
+            <Thumb
+              key={`${i}-${image.name}-${image.bytes.length}`}
+              image={image}
+              index={i}
+              slot={slots?.[i] || undefined}
+              onRemove={() => removeReference(i)}
+            />
           ))}
         </ul>
       )}

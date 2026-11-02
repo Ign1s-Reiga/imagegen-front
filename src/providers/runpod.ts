@@ -1,7 +1,14 @@
 import { base64ToBytes, bytesToBase64, extForMime, sniffImageMime } from "@/lib/bytes";
 import { HttpError, cancelOnAbort, http, httpImage, httpJson, sleep, trimSlash, type HttpOptions } from "@/lib/http";
 
-import { applyWorkflow, buildComfyWorkflow, workflowCapabilities, type UploadedRefs } from "./comfy-workflow";
+import {
+  applyWorkflow,
+  buildComfyWorkflow,
+  referenceUploadName,
+  workflowCapabilities,
+  workflowReferenceProblem,
+  type UploadedRefs,
+} from "./comfy-workflow";
 import { parseRunpodMyself } from "./credit";
 import type { Capabilities, ConnectionConfig, GeneratedImage, ProviderDefinition } from "./types";
 
@@ -125,6 +132,8 @@ export const runpod: ProviderDefinition = {
   async generate(params, config, ctx) {
     const checkpoint = params.model || config.checkpoint;
     if (!params.workflow && !checkpoint) throw new Error("Set a checkpoint file name for this endpoint.");
+    const problem = params.workflow ? workflowReferenceProblem(params.workflow, params.references.length) : null;
+    if (problem) throw new Error(problem);
 
     // worker-comfyui writes these into ComfyUI's input folder before running.
     const images: { name: string; image: string }[] = [];
@@ -137,6 +146,11 @@ export const runpod: ProviderDefinition = {
         refs.mask = "imagegen-mask.png";
         images.push({ name: refs.mask, image: bytesToBase64(params.mask.bytes) });
       }
+    }
+    if (params.workflow && params.references.length) {
+      // Unique names, so a file a previous job left on the worker is never loaded instead.
+      refs.references = params.references.map((image, i) => referenceUploadName(i, image, crypto.randomUUID()));
+      params.references.forEach((image, i) => images.push({ name: refs.references![i], image: bytesToBase64(image.bytes) }));
     }
     const workflow = params.workflow
       ? applyWorkflow(params.workflow, params, refs)
