@@ -2,7 +2,7 @@
 
 import { ArrowLeftRight, Dices, FileUp, Paintbrush, RefreshCw, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   boundInput,
@@ -23,6 +23,7 @@ import {
   type FormState,
 } from "@/store/app";
 
+import { ErrorLogDialog } from "../ErrorLogDialog";
 import { PromptHelper } from "../PromptHelper";
 import { Button, Field, IconButton, NumberInput, Segmented, Select, TextArea, TextInput, cx, useFieldId } from "../ui";
 import { ImageDrop } from "./ImageDrop";
@@ -165,6 +166,10 @@ export function ParamsPanel() {
   const elapsed = useElapsed(running ? job.startedAt : undefined);
   const [paintingMask, setPaintingMask] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<SavedWorkflow | null>(null);
+  // The failed job whose error is open in full, by start time, so a later
+  // failure does not open in the window by itself.
+  const [viewingError, setViewingError] = useState<number | null>(null);
+  const closeError = useCallback(() => setViewingError(null), []);
   const workflowFileRef = useRef<HTMLInputElement>(null);
   // Worked out when the workflow or the attachments change, not on every
   // keystroke in the prompt.
@@ -627,10 +632,15 @@ export function ParamsPanel() {
       <div className="border-t border-line bg-panel px-4 py-3">
         {job?.status === "error" && (
           <div role="alert" className="mb-3 max-h-36 overflow-y-auto rounded-[4px] bg-danger/10 px-3 py-2 text-[13px] leading-snug text-danger">
-            <p>{job.error}</p>
-            <button type="button" onClick={dismissJob} className="mt-1 text-fg-dim hover:text-fg">
-              Dismiss
-            </button>
+            <p className="whitespace-pre-wrap break-words">{job.error}</p>
+            <div className="mt-1 flex gap-3">
+              <button type="button" onClick={() => setViewingError(job.startedAt)} className="text-fg-dim hover:text-fg">
+                View full error
+              </button>
+              <button type="button" onClick={dismissJob} className="text-fg-dim hover:text-fg">
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
         {running ? (
@@ -657,6 +667,9 @@ export function ParamsPanel() {
         />
       )}
       {editingWorkflow && <WorkflowEditor workflow={editingWorkflow} onClose={() => setEditingWorkflow(null)} />}
+      {job?.status === "error" && job.startedAt === viewingError && (
+        <ErrorLogDialog title="Generation failed" text={job.error ?? ""} onClose={closeError} />
+      )}
     </aside>
   );
 }
