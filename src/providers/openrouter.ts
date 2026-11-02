@@ -90,13 +90,14 @@ async function sharedRead<T>(
 
 /**
  * For a generation that can go on without an answer: undefined when the read
- * failed, but the run's own cancel still ends it. Checked on the run's signal,
- * not the error: a read that times out also rejects with an abort error, and
- * that is a failed read, not a cancel.
+ * failed, but the run's own cancel still ends it, always as an abort error
+ * (even when the read failed some other way just as the run was cancelled).
+ * Checked on the run's signal, not the error: a read that times out also
+ * rejects with an abort error, and that is a failed read, not a cancel.
  */
 function orUnknown<T>(read: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
-  return read.catch((err: unknown) => {
-    if (signal.aborted) throw err;
+  return read.catch(() => {
+    if (signal.aborted) throw abortError();
     return undefined;
   });
 }
