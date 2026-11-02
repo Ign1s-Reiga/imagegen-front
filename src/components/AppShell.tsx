@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {notice && (
         <div
           role="status"
-          className="pointer-events-none fixed left-1/2 top-1.5 z-50 max-w-[min(640px,56vw)] -translate-x-1/2 rounded-[5px] bg-raised px-4 py-1.5 text-[13px] leading-snug text-fg shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
+          className="pointer-events-none fixed left-1/2 top-1.5 z-50 line-clamp-4 max-w-[min(640px,56vw)] -translate-x-1/2 break-words rounded-[5px] bg-raised px-4 py-1.5 text-[13px] leading-snug text-fg shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
         >
           {notice}
         </div>

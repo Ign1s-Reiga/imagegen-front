@@ -24,6 +24,13 @@ function bodyMessage(body: string): string {
   return detail;
 }
 
+/**
+ * The most of a body's message kept: enough for a full provider error (with
+ * a list of violations or a validation report) to read in the error window,
+ * while a server's whole HTML error page is still cut short.
+ */
+const MAX_DETAIL = 4000;
+
 /** One line for a failed HTTP response: the host, the status and what the body says. */
 export function describeHttpError(status: number, body: string, url: string): string {
   const detail = bodyMessage(body);
@@ -34,5 +41,5 @@ export function describeHttpError(status: number, body: string, url: string): st
       return url;
     }
   })();
-  return `${host} returned ${status}${detail ? `: ${detail.slice(0, 400)}` : ""}`;
+  return `${host} returned ${status}${detail ? `: ${detail.length > MAX_DETAIL ? `${detail.slice(0, MAX_DETAIL)}…` : detail}` : ""}`;
 }
