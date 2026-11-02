@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 
@@ -32,6 +32,49 @@ export const Button = forwardRef<
     />
   );
 });
+
+/**
+ * A modal over a dimmed backdrop: it focuses its first control on open, and
+ * Escape or a press on the backdrop closes it. The Escape listener runs first
+ * and stops there, so a page shortcut on Escape does not fire too. `className`
+ * sizes and lays out the panel.
+ */
+export function Dialog({
+  label,
+  onClose,
+  className,
+  children,
+}: {
+  label: string;
+  onClose: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        className={cx("rounded-[6px] bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.5)]", className)}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function IconButton({
   label,
