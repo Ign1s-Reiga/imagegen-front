@@ -250,6 +250,25 @@ test("two loaders with the same reference number both get its image", () => {
   assert.equal(applied["12"].inputs.image, "r1.png");
 });
 
+test("uploads run at once and still come back in attachment order", async () => {
+  let inFlight = 0;
+  let most = 0;
+  // The first upload is the slowest, so finishing order is reversed.
+  const delays = [30, 10, 0];
+  const names = await uploadReferences([image("a.png", 1), image("b.png", 2), image("c.png", 3)], async (img, name) => {
+    inFlight++;
+    most = Math.max(most, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, delays[img.bytes[0] - 1]));
+    inFlight--;
+    return `${img.bytes[0]}:${name}`;
+  });
+  assert.equal(most, 3);
+  assert.deepEqual(
+    names.map((n) => n.split(":")[0]),
+    ["1", "2", "3"],
+  );
+});
+
 test("the same image always gets the same upload name, so repeat runs reuse one file", async () => {
   const a = await referenceUploadName(image("first.png", 7));
   const b = await referenceUploadName(image("renamed.png", 7));
