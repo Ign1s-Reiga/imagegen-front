@@ -85,6 +85,7 @@ export function Dialog({
   className,
   initialFocus,
   closeOnBackdrop = true,
+  fill = false,
   children,
 }: {
   label: string;
@@ -97,6 +98,8 @@ export function Dialog({
   initialFocus?: RefObject<HTMLElement | null> | "panel";
   /** False where a stray press outside would throw away edits. */
   closeOnBackdrop?: boolean;
+  /** Cover the whole window, with no backdrop, as a full-screen editor does. */
+  fill?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -119,21 +122,29 @@ export function Dialog({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
+  const panel = (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+      tabIndex={initialFocus === "panel" ? -1 : undefined}
+      className={cx(
+        fill ? "fixed inset-0 z-40" : "rounded-[6px] bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.5)]",
+        "outline-none",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+  if (fill) return panel;
   return (
     <div
       className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6"
       onPointerDown={(e) => closeOnBackdrop && e.target === e.currentTarget && onClose()}
     >
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={initialFocus === "panel" ? -1 : undefined}
-        className={cx("rounded-[6px] bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.5)] outline-none", className)}
-      >
-        {children}
-      </div>
+      {panel}
     </div>
   );
 }
