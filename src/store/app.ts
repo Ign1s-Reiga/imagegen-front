@@ -289,17 +289,19 @@ function formFor(
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
- * A failed read about the model itself, which asking again would not fix: a
- * model the backend does not know (404) or a request it rejects (400, 422).
+ * How long to remember a failed per-model options read that asking again at
+ * once would not fix, or undefined for one that might (a timeout, a server
+ * error). A failure about the model itself (a model the backend does not know,
+ * 404, or a request it rejects, 400 or 422) is kept for ten minutes. One about
+ * the account (a rejected key, no credit or no permission: 401, 402, 403) only
+ * for a minute, since the user may fix it outside the app (more credit, say).
  */
-const isModelFailure = (err: unknown) => err instanceof HttpError && [400, 404, 422].includes(err.status);
-
-/**
- * A failed read about the account: a rejected key, no credit or no permission
- * (401, 402, 403). Asking again at once would not fix it either, but the user
- * may fix it outside the app (more credit, say), so it is remembered briefly.
- */
-const isAccountFailure = (err: unknown) => err instanceof HttpError && [401, 402, 403].includes(err.status);
+function missTtl(err: unknown): number | undefined {
+  if (!(err instanceof HttpError)) return undefined;
+  if ([400, 404, 422].includes(err.status)) return 10 * 60_000;
+  if ([401, 402, 403].includes(err.status)) return 60_000;
+  return undefined;
+}
 
 /**
  * Per-model options reads in flight, by connection and model, with the
@@ -317,8 +319,6 @@ const modelOptionReads = new Map<string, { connection: Connection; read: Promise
  * longer applies. Kept out of the store, so typos do not pile up in its state.
  */
 const modelOptionMisses = new Map<string, { connection: Connection; until: number }>();
-const MODEL_MISS_TTL_MS = 10 * 60_000;
-const ACCOUNT_MISS_TTL_MS = 60_000;
 
 export const useApp = create<AppState>()((set, get) => {
   /** Writes the current form into `forms` (shared part + active connection). */
@@ -562,8 +562,8 @@ export const useApp = create<AppState>()((set, get) => {
         } catch (err) {
           // Not asked about again for a while when asking again would not help,
           // so the panel neither retries it nor reads it on the next pause.
-          const ttl = isModelFailure(err) ? MODEL_MISS_TTL_MS : isAccountFailure(err) ? ACCOUNT_MISS_TTL_MS : 0;
-          if (!ttl || !current()) return false;
+          const ttl = missTtl(err);
+          if (ttl === undefined || !current()) return false;
           // Expired misses are dropped as new ones come in, so a session of
           // typos does not keep every one of them.
           const now = Date.now();
