@@ -405,7 +405,10 @@ export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow
   );
   for (const [nodeId, node] of Object.entries(workflow.graph)) {
     const n = node.class_type === "LoadImage" ? referenceTitleNumber(node) : null;
-    if (!n || bindings.some((b) => b.nodeId === nodeId && b.input === "image")) continue;
+    // As on import, only a file name can be replaced; an image wired in from
+    // another node is left connected.
+    if (!n || !isPrimitive(node.inputs.image)) continue;
+    if (bindings.some((b) => b.nodeId === nodeId && b.input === "image")) continue;
     bindings.push({ nodeId, input: "image", target: REFERENCE_PARAMS[n - 1] });
   }
   return { ...workflow, bindings, bindingsVersion: BINDINGS_VERSION };

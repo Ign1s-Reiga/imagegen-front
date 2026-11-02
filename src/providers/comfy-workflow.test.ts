@@ -381,6 +381,17 @@ test("a workflow saved in 0.2.0 gets the fixes for repeated and past-4 reference
   assert.equal(workflowCapabilities(upgraded, BASE_CAPS).img2imgOnly, false);
 });
 
+test("a reference loader whose image is wired from another node is not mapped", () => {
+  const graph = mossGraph();
+  graph["6"].inputs.image = ["12", 0];
+  graph["12"] = { class_type: "LoadImageFromUrl", inputs: { url: "https://example.com/a.png" } };
+  const old: SavedWorkflow = { ...saved(graph), bindings: saved(graph).bindings.filter((b) => b.nodeId !== "6") };
+  const upgraded = upgradeReferenceBindings(old);
+  assert.equal(targetOf(upgraded, "6", "image"), undefined);
+  // Importing it does the same.
+  assert.equal(targetOf(saved(graph), "6", "image"), undefined);
+});
+
 test("a reference loader mapped to something else on purpose is left alone", () => {
   const wf = saved(mossGraph());
   const chosen: SavedWorkflow = {
