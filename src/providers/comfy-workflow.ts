@@ -374,10 +374,17 @@ export function workflowReferenceSlots(workflow: SavedWorkflow): { number: numbe
  * Why `count` attached references cannot run this workflow, or null when
  * they can: every mapped reference needs an image (the saved file name would
  * otherwise be loaded, a placeholder or a previous run's upload), and every
- * attached image needs an input to go to.
+ * attached image needs an input to go to. A gap in the numbering (Reference 1
+ * and 3 but not 2) fails both whatever is attached, so it is reported first,
+ * as something to fix in the workflow rather than in the attachments.
  */
 export function workflowReferenceProblem(workflow: SavedWorkflow, count: number): string | null {
   const slots = workflowReferenceSlots(workflow);
+  const gaps = slots.filter((s) => !s.titles.length).map((s) => s.number);
+  if (gaps.length) {
+    const list = gaps.map((n) => `Reference ${n}`).join(" or ");
+    return `${workflow.name} maps Reference ${slots.length} but not ${list}, so it cannot run. In the workflow inputs, map a LoadImage node to ${list}, or number the references from 1 without gaps.`;
+  }
   const missing = slots.filter((s) => s.titles.length && s.number > count);
   if (missing.length) {
     const names = missing.map((s) => s.titles[0]).join(", ");

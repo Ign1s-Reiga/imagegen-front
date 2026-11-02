@@ -214,7 +214,10 @@ test("an attachment with no reference input is rejected", () => {
   graph["5"]._meta = { title: "Reference 3 — Person" };
   const gapped = saved(graph);
   assert.equal(workflowCapabilities(gapped, BASE_CAPS).references, 3);
-  assert.match(workflowReferenceProblem(gapped, 3) ?? "", /reference image 2\b/);
+  // Whatever is attached, the answer is to fix the workflow's numbering.
+  for (const count of [0, 1, 2, 3]) {
+    assert.match(workflowReferenceProblem(gapped, count) ?? "", /maps Reference 3 but not Reference 2, so it cannot run/);
+  }
 });
 
 test("images with the same file name are uploaded under different names", async () => {
