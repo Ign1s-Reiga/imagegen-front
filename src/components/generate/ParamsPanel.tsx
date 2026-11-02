@@ -169,13 +169,13 @@ export function ParamsPanel() {
   // Worked out when the workflow or the attachments change, not on every
   // keystroke in the prompt.
   const referenceCount = form.references.length;
-  const referenceSlots = useMemo(
-    () => (workflow ? workflowReferenceSlots(workflow).map((s) => s.titles[0] ?? "") : undefined),
-    [workflow],
-  );
+  // The slots are read from the bindings once per workflow, and reused for
+  // the check as attachments come and go.
+  const slots = useMemo(() => (workflow ? workflowReferenceSlots(workflow) : null), [workflow]);
+  const referenceSlots = useMemo(() => slots?.map((s) => s.titles[0] ?? ""), [slots]);
   const referenceProblem = useMemo(
-    () => (workflow ? workflowReferenceProblem(workflow, referenceCount) : null),
-    [workflow, referenceCount],
+    () => (workflow && slots ? workflowReferenceProblem(workflow, referenceCount, slots) : null),
+    [workflow, slots, referenceCount],
   );
 
   const promptId = useFieldId("prompt");
