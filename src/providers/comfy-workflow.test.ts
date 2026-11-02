@@ -221,6 +221,13 @@ test("an attachment with no reference input is rejected", () => {
   for (const count of [0, 1, 2, 3]) {
     assert.match(workflowReferenceProblem(gapped, count) ?? "", /maps Reference 3 but not Reference 2, so it cannot run/);
   }
+  // Two missing numbers are both asked for.
+  const wide = mossGraph();
+  wide["5"]._meta = { title: "Reference 4 — Person" };
+  assert.match(
+    workflowReferenceProblem(saved(wide), 4) ?? "",
+    /but not Reference 2 and Reference 3, so it cannot run\. In the workflow inputs, map a LoadImage node to each of Reference 2 and Reference 3,/,
+  );
 });
 
 test("images with the same file name are uploaded under different names", async () => {

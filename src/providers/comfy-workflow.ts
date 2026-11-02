@@ -418,8 +418,11 @@ export function workflowReferenceProblem(workflow: SavedWorkflow, count: number)
   const slots = workflowReferenceSlots(workflow);
   const gaps = slots.filter((s) => !s.titles.length).map((s) => s.number);
   if (gaps.length) {
-    const list = gaps.map((n) => `Reference ${n}`).join(" or ");
-    return `${workflow.name} maps Reference ${slots.length} but not ${list}, so it cannot run. In the workflow inputs, map a LoadImage node to ${list}, or number the references from 1 without gaps.`;
+    // Every missing number is needed, so they are joined with "and".
+    const names = gaps.map((n) => `Reference ${n}`);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+    const target = names.length > 1 ? `each of ${list}` : list;
+    return `${workflow.name} maps Reference ${slots.length} but not ${list}, so it cannot run. In the workflow inputs, map a LoadImage node to ${target}, or number the references from 1 without gaps.`;
   }
   const missing = slots.filter((s) => s.titles.length && s.number > count);
   if (missing.length) {
