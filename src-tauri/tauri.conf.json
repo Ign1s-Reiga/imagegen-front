@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ImageGen",
   "mainBinaryName": "imagegen-front",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "identifier": "io.imagegen.desktop",
   "build": {
     "frontendDist": "../out",
