@@ -112,13 +112,12 @@ export function PromptBox({
   const blocked = warning ?? (count > 0 ? problem : null);
   const hint =
     blocked ??
-    (problem
-      ? problem
-      : count
-        ? `${count} reference image${count === 1 ? "" : "s"}, sent in this order`
-        : limit
-          ? "Paste, drop or attach images for the model to follow"
-          : "");
+    problem ??
+    (count
+      ? `${count} reference image${count === 1 ? "" : "s"}, sent in this order`
+      : limit
+        ? "Paste, drop or attach images for the model to follow"
+        : "");
 
   return (
     <div
