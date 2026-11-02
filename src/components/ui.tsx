@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 
@@ -54,12 +54,15 @@ export function useModal() {
  * body, so a keyboard user starts over from the top.
  */
 export function useRestoreFocus() {
-  useEffect(() => {
-    const previous = document.activeElement;
-    return () => {
+  // Read on the first render, before any effect or autoFocus inside the
+  // component has moved focus in; an effect here runs after its children's.
+  const [previous] = useState(() => (typeof document === "undefined" ? null : document.activeElement));
+  useEffect(
+    () => () => {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-    };
-  }, []);
+    },
+    [previous],
+  );
 }
 
 /**
