@@ -1,12 +1,41 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { useApp } from "@/store/app";
 
+import { ErrorLogDialog } from "./ErrorLogDialog";
 import { TopBar } from "./TopBar";
 import { isModalOpen } from "./ui";
+
+/**
+ * The notice over the top bar, at most four lines. It lets clicks through to
+ * the bar beneath, except on Show all, offered when the text is cut.
+ */
+function NoticeToast({ notice, onShowAll }: { notice: string; onShowAll: () => void }) {
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    setCut(!!el && el.scrollHeight > el.clientHeight + 1);
+  }, [notice]);
+  return (
+    <div
+      role="status"
+      className="pointer-events-none fixed left-1/2 top-1.5 z-50 flex max-w-[min(640px,56vw)] -translate-x-1/2 items-start gap-3 rounded-[5px] bg-raised px-4 py-1.5 text-[13px] leading-snug text-fg shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
+    >
+      <p ref={textRef} className="line-clamp-4 min-w-0 break-words">
+        {notice}
+      </p>
+      {cut && (
+        <button type="button" onClick={onShowAll} className="pointer-events-auto shrink-0 text-fg-dim hover:text-fg">
+          Show all
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Loads app state once and frames every route with the top bar. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -17,6 +46,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [initError, setInitError] = useState<string | null>(null);
+  // A notice opened in full stays open after the toast times out.
+  const [fullNotice, setFullNotice] = useState<string | null>(null);
+  const closeFullNotice = useCallback(() => setFullNotice(null), []);
   const routedFirstRun = useRef(false);
 
   useEffect(() => {
@@ -74,14 +106,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex h-full flex-col">
       <TopBar />
       <main className="min-h-0 flex-1">{children}</main>
-      {notice && (
-        <div
-          role="status"
-          className="pointer-events-none fixed left-1/2 top-1.5 z-50 line-clamp-4 max-w-[min(640px,56vw)] -translate-x-1/2 break-words rounded-[5px] bg-raised px-4 py-1.5 text-[13px] leading-snug text-fg shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
-        >
-          {notice}
-        </div>
-      )}
+      {notice && <NoticeToast notice={notice} onShowAll={() => setFullNotice(notice)} />}
+      {fullNotice && <ErrorLogDialog title="Full message" text={fullNotice} onClose={closeFullNotice} />}
     </div>
   );
 }
