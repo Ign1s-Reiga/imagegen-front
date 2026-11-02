@@ -30,7 +30,7 @@ const describeError = (err: unknown) =>
 function CreditSummary({ check, kind }: { check: CreditCheck; kind: ConnectionKind }) {
   if (check.status === "idle") return <p className="text-[13px] text-fg-faint">Not checked yet.</p>;
   if (check.status === "loading") return <p className="text-[13px] text-fg-faint">Checking</p>;
-  if (check.status === "error") return <p className="text-[13px] leading-snug text-danger">{check.message}</p>;
+  if (check.status === "error") return <p className="max-h-32 overflow-y-auto break-words text-[13px] leading-snug text-danger">{check.message}</p>;
   if (!check.info) {
     return (
       <p className="text-[13px] text-fg-faint">
@@ -266,7 +266,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
         <p
           role="status"
           className={cx(
-            "mt-5 rounded-[4px] px-3 py-2 text-[13px] leading-snug",
+            "mt-5 max-h-40 overflow-y-auto break-words rounded-[4px] px-3 py-2 text-[13px] leading-snug",
             test.status === "ok" && "bg-ok/10 text-ok",
             test.status === "error" && "bg-danger/10 text-danger",
             test.status === "running" && "bg-field text-fg-dim",

@@ -98,7 +98,7 @@ function Entry({ entry }: { entry: AgentEntry }) {
       );
     case "error":
       return (
-        <p role="alert" className="rounded-[4px] bg-danger/10 px-3 py-2 text-[13px] leading-snug text-danger">
+        <p role="alert" className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-[4px] bg-danger/10 px-3 py-2 text-[13px] leading-snug text-danger">
           {entry.text}
         </p>
       );
