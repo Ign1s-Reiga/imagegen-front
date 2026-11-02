@@ -42,6 +42,11 @@ test("a long message is kept up to 4000 characters, then marked as cut", () => {
   assert.equal(describeHttpError(502, page, URL), `openrouter.ai returned 502: ${"y".repeat(4000)}…`);
 });
 
+test("a cut never splits an emoji", () => {
+  const text = `${"z".repeat(3999)}😀tail`.padEnd(5000, "z");
+  assert.equal(describeHttpError(400, text, URL), `openrouter.ai returned 400: ${"z".repeat(3999)}…`);
+});
+
 test("without a usable raw body the API's own message stays", () => {
   const empty = JSON.stringify({ error: { message: "Model not found", metadata: { raw: "{}" } } });
   assert.equal(describeHttpError(404, empty, URL), "openrouter.ai returned 404: Model not found");

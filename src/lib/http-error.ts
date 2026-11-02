@@ -58,6 +58,12 @@ function bodyMessage(body: string): string {
  */
 const MAX_DETAIL = 4000;
 
+/** The first `max` UTF-16 units of `text`, one fewer if that would split an emoji's surrogate pair. */
+function cut(text: string, max: number): string {
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+}
+
 /** One line for a failed HTTP response: the host, the status and what the body says. */
 export function describeHttpError(status: number, body: string, url: string): string {
   const detail = bodyMessage(body);
@@ -68,5 +74,5 @@ export function describeHttpError(status: number, body: string, url: string): st
       return url;
     }
   })();
-  return `${host} returned ${status}${detail ? `: ${detail.length > MAX_DETAIL ? `${detail.slice(0, MAX_DETAIL)}…` : detail}` : ""}`;
+  return `${host} returned ${status}${detail ? `: ${detail.length > MAX_DETAIL ? `${cut(detail, MAX_DETAIL)}…` : detail}` : ""}`;
 }
