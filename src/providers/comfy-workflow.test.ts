@@ -5,6 +5,7 @@ import {
   applyWorkflow,
   buildComfyWorkflow,
   detectBindings,
+  referenceUploadName,
   unsupportedReferenceTitles,
   uploadReferences,
   workflowCapabilities,
@@ -231,8 +232,7 @@ test("images with the same file name are uploaded under different names", async 
     return `uploads/${name}`;
   });
   assert.notEqual(sent[0], sent[1]);
-  assert.match(sent[0], /^imagegen-ref1-.+\.png$/);
-  assert.match(sent[1], /^imagegen-ref2-.+\.png$/);
+  assert.match(sent[0], /^imagegen-ref-[0-9a-f]{32}\.png$/);
   assert.deepEqual([...server.values()], [1, 2]);
   // The names the server reported are the ones returned, in order.
   assert.deepEqual(names, sent.map((n) => `uploads/${n}`));
@@ -248,6 +248,23 @@ test("two loaders with the same reference number both get its image", () => {
   const applied = applyWorkflow(wf, params(), { references: ["r1.png", "r2.png"] });
   assert.equal(applied["6"].inputs.image, "r1.png");
   assert.equal(applied["12"].inputs.image, "r1.png");
+});
+
+test("the same image always gets the same upload name, so repeat runs reuse one file", async () => {
+  const a = await referenceUploadName(image("first.png", 7));
+  const b = await referenceUploadName(image("renamed.png", 7));
+  const c = await referenceUploadName(image("first.png", 8));
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  // Three runs with the same two images leave two files, not six.
+  const server = new Set<string>();
+  for (let run = 0; run < 3; run++) {
+    await uploadReferences([image("a.png", 1), image("b.png", 2)], async (_img, name) => {
+      server.add(name);
+      return name;
+    });
+  }
+  assert.equal(server.size, 2);
 });
 
 test("other LoadImage nodes keep their ordinary roles", () => {

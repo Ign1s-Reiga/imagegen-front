@@ -278,8 +278,9 @@ async function prepareWorkflow(
   if (params.workflow && params.references.length) {
     const count = params.references.length;
     ctx.onProgress({ stage: "uploading", message: `Uploading ${count} reference image${count === 1 ? "" : "s"}` });
-    // Unique names, and never overwriting, so neither another reference nor a
-    // previous run's upload can stand in for this one.
+    // Named by content and never overwriting: a file already there under that
+    // name is this same image (ComfyUI keeps it rather than adding a copy),
+    // and a different one is renamed rather than replaced.
     refs.references = await uploadReferences(params.references, (image, name) =>
       uploadImage(config, image, ctx.signal, { name, overwrite: false }),
     );
