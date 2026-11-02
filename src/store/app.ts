@@ -24,6 +24,7 @@ import {
   boundInput,
   detectBindings,
   parseWorkflowJson,
+  unsupportedReferenceTitles,
   workflowDefaults,
   type SavedWorkflow,
 } from "@/providers/comfy-workflow";
@@ -626,6 +627,12 @@ export const useApp = create<AppState>()((set, get) => {
         };
         await get().saveWorkflow(workflow);
         get().selectWorkflow(workflow.id);
+        const unsupported = unsupportedReferenceTitles(graph);
+        if (unsupported.length) {
+          set({
+            notice: `Only Reference 1 to 4 are supported, so ${unsupported.join(", ")} ${unsupported.length === 1 ? "was" : "were"} left unmapped. Retitle ${unsupported.length === 1 ? "it" : "them"}, or map ${unsupported.length === 1 ? "it" : "them"} in the workflow inputs.`,
+          });
+        }
         return workflow;
       } catch (err) {
         set({ notice: `Could not import ${file.name}: ${errorMessage(err)}` });

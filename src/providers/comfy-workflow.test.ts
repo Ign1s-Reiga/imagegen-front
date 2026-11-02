@@ -5,6 +5,7 @@ import {
   applyWorkflow,
   buildComfyWorkflow,
   detectBindings,
+  unsupportedReferenceTitles,
   uploadReferences,
   workflowCapabilities,
   workflowReferenceProblem,
@@ -253,10 +254,19 @@ test("other LoadImage nodes keep their ordinary roles", () => {
   // An untitled loader is still the input image, as before; Reference inputs are not.
   assert.equal(targetOf(wf, "12", "image"), "initImage");
   assert.equal(targetOf(wf, "6", "image"), "reference1");
-  // "Reference 12" is not Reference 1.
-  const other = mossGraph();
-  other["6"]._meta = { title: "Reference 12" };
-  assert.equal(targetOf(saved(other), "6", "image"), "initImage");
+});
+
+test("a reference title past 4 is mapped to nothing and reported, not taken as the input image", () => {
+  const graph = mossGraph();
+  graph["12"] = { class_type: "LoadImage", inputs: { image: "extra.png" }, _meta: { title: "Reference 5 — Lighting" } };
+  // "Reference 12" is not Reference 1 either.
+  graph["13"] = { class_type: "LoadImage", inputs: { image: "other.png" }, _meta: { title: "Reference 12" } };
+  const wf = saved(graph);
+  assert.equal(targetOf(wf, "12", "image"), undefined);
+  assert.equal(targetOf(wf, "13", "image"), undefined);
+  assert.equal(workflowCapabilities(wf, BASE_CAPS).img2imgOnly, false);
+  assert.deepEqual(unsupportedReferenceTitles(graph), ["Reference 5 — Lighting", "Reference 12"]);
+  assert.deepEqual(unsupportedReferenceTitles(mossGraph()), []);
 });
 
 /** An ordinary img2img graph with an input image and a mask. */

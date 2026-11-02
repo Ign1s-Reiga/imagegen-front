@@ -264,6 +264,20 @@ export function referenceTitleNumber(node: ComfyNode): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** Titled as a reference at all, numbered 1 to 4 or not ("Reference 5", "Reference 0"). */
+const hasReferenceTitle = (node: ComfyNode) => /^\s*reference\s*\d/i.test(node._meta?.title ?? "");
+
+/**
+ * Titles of LoadImage nodes named as a reference outside 1 to 4. They are
+ * mapped to nothing, rather than taken for the input image, so the import can
+ * say so.
+ */
+export function unsupportedReferenceTitles(graph: ComfyWorkflow): string[] {
+  return Object.values(graph)
+    .filter((node) => node.class_type === "LoadImage" && hasReferenceTitle(node) && !referenceTitleNumber(node))
+    .map(nodeTitle);
+}
+
 /** Guesses which inputs the standard panel controls should drive. */
 export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
   const bindings: WorkflowBinding[] = [];
@@ -348,8 +362,10 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
   // Input image and mask.
   const masks = byClass(/^LoadImageMask$/);
   for (const [id] of masks) bind(id, "image", "mask");
+  // Not a node titled as a reference, even one past Reference 4: taking it
+  // for the input image would make the workflow image to image.
   for (const [id, node] of loaders) {
-    if (!referenceTitleNumber(node)) bind(id, "image", "initImage");
+    if (!hasReferenceTitle(node)) bind(id, "image", "initImage");
   }
 
   return bindings;
