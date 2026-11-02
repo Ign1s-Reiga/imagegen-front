@@ -18,11 +18,21 @@ test("an OpenRouter error gives the provider's full message, not the shortened o
   assert.equal(describeHttpError(400, body, URL), `openrouter.ai returned 400: ${full}`);
 });
 
-test("a raw provider body that is plain text or an object is used as it is", () => {
-  const text = JSON.stringify({ error: { message: "short…", metadata: { raw: "upstream said no" } } });
-  assert.equal(describeHttpError(400, text, URL), "openrouter.ai returned 400: upstream said no");
+test("a plain-text raw body is used only when it is the message OpenRouter shortened", () => {
+  const same = JSON.stringify({ error: { message: "upstream said…", metadata: { raw: "upstream said no, because of X" } } });
+  assert.equal(describeHttpError(400, same, URL), "openrouter.ai returned 400: upstream said no, because of X");
   const object = JSON.stringify({ error: { message: "short…", metadata: { raw: { error: { message: "full reason" } } } } });
   assert.equal(describeHttpError(400, object, URL), "openrouter.ai returned 400: full reason");
+});
+
+test("a raw body with no readable message keeps OpenRouter's message", () => {
+  const html = JSON.stringify({ error: { message: "Provider returned error…", metadata: { raw: "<html><body>502 Bad Gateway</body></html>" } } });
+  assert.equal(describeHttpError(502, html, URL), "openrouter.ai returned 502: Provider returned error…");
+  const noMessage = JSON.stringify({ error: { message: "Provider returned error…", metadata: { raw: '{"errors":[{"code":"x"}]}' } } });
+  assert.equal(describeHttpError(400, noMessage, URL), "openrouter.ai returned 400: Provider returned error…");
+  // A complete message is not swapped for the provider's.
+  const whole = JSON.stringify({ error: { message: "Rate limited", metadata: { raw: '{"error":{"message":"429 from upstream"}}' } } });
+  assert.equal(describeHttpError(429, whole, URL), "openrouter.ai returned 429: Rate limited");
 });
 
 test("a long message is kept up to 4000 characters, then marked as cut", () => {
