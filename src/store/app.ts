@@ -23,6 +23,7 @@ import type { ChatModel, ChatService } from "@/providers/chat";
 import {
   boundInput,
   detectBindings,
+  BINDINGS_VERSION,
   parseWorkflowJson,
   unsupportedReferenceTitles,
   upgradeReferenceBindings,
@@ -413,15 +414,18 @@ export const useApp = create<AppState>()((set, get) => {
       const recent = await listGenerations({ limit: 40 })
         .then((page) => page.generations)
         .catch(() => []);
+      // Workflows saved before 0.2.1 have their reference loaders mapped as
+      // importing them now would, once: the result is saved with its version,
+      // so a mapping changed in the editor afterwards is not undone next start.
+      const workflows = settings.workflows.map(upgradeReferenceBindings);
+      if (workflows.some((w, i) => w !== settings.workflows[i])) void saveSetting("workflows", workflows);
       set({
         ready: true,
         connections: settings.connections,
         activeConnectionId: active?.id ?? null,
         forms: settings.forms,
         form: formFor(active, settings.forms, base),
-        // Workflows imported before 0.2.0 had their Reference loaders taken
-        // for the input image; they are mapped as importing them now would.
-        workflows: settings.workflows.map(upgradeReferenceBindings),
+        workflows,
         assistant: settings.assistant,
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,
@@ -628,6 +632,7 @@ export const useApp = create<AppState>()((set, get) => {
           graph,
           bindings: detectBindings(graph),
           createdAt: Date.now(),
+          bindingsVersion: BINDINGS_VERSION,
         };
         await get().saveWorkflow(workflow);
         get().selectWorkflow(workflow.id);
