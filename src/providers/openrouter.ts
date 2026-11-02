@@ -110,7 +110,8 @@ interface EndpointsResponse {
 }
 
 /** Each model's provider endpoints, per URL; read once a session, and only when an option needs them. */
-const imageEndpoints = new Map<string, Promise<EndpointsResponse>>();
+// A body of `null` is valid JSON, and reads as no endpoints.
+const imageEndpoints = new Map<string, Promise<EndpointsResponse | null>>();
 
 /**
  * The keys each of the model's providers accepts passed through to it, by
@@ -129,7 +130,7 @@ async function passthroughKeys(config: ConnectionConfig, model: string, signal: 
   // of them lists it. No prototype, so a slug can only ever be an own key; the
   // map is only read through Object.entries and Object.values.
   const accepted: Record<string, string[]> = Object.create(null);
-  for (const e of found.endpoints ?? []) {
+  for (const e of found?.endpoints ?? []) {
     if (!e.provider_slug || !isProviderSlug(e.provider_slug)) continue;
     const keys = (accepted[e.provider_slug] ??= []);
     for (const key of e.allowed_passthrough_parameters ?? []) if (!keys.includes(key)) keys.push(key);
