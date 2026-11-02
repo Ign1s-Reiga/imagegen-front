@@ -234,6 +234,18 @@ test("images with the same file name are uploaded under different names", async 
   assert.deepEqual(names, sent.map((n) => `uploads/${n}`));
 });
 
+test("two loaders with the same reference number both get its image", () => {
+  const graph = mossGraph();
+  graph["12"] = { class_type: "LoadImage", inputs: { image: "old-face.png" }, _meta: { title: "Reference 1 — Face crop" } };
+  const wf = saved(graph);
+  assert.equal(targetOf(wf, "6", "image"), "reference1");
+  assert.equal(targetOf(wf, "12", "image"), "reference1");
+  assert.equal(workflowCapabilities(wf, BASE_CAPS).references, 2);
+  const applied = applyWorkflow(wf, params(), { references: ["r1.png", "r2.png"] });
+  assert.equal(applied["6"].inputs.image, "r1.png");
+  assert.equal(applied["12"].inputs.image, "r1.png");
+});
+
 test("other LoadImage nodes keep their ordinary roles", () => {
   const graph = mossGraph();
   graph["12"] = { class_type: "LoadImage", inputs: { image: "watermark.png" }, _meta: { title: "Logo" } };
