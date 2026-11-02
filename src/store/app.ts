@@ -289,17 +289,19 @@ function formFor(
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
- * How long to remember a failed per-model options read that asking again at
- * once would not fix, or undefined for one that might (a timeout, a server
- * error). A failure about the model itself (a model the backend does not know,
- * 404, or a request it rejects, 400 or 422) is kept for ten minutes. One about
- * the account (a rejected key, no credit or no permission: 401, 402, 403) only
- * for a minute, since the user may fix it outside the app (more credit, say).
+ * How to remember a failed per-model options read that asking again at once
+ * would not fix, or undefined for one that might (a timeout, a server error).
+ * A failure about the model itself (a model the backend does not know, 404,
+ * or a request it rejects, 400 or 422) is kept for that model, for ten
+ * minutes. One about the account (a rejected key, no credit or no permission:
+ * 401, 402, 403) is kept for every model of the connection, since any other
+ * would fail the same way, but only for a minute, since the user may fix it
+ * outside the app (more credit, say).
  */
-function missTtl(err: unknown): number | undefined {
+function missFor(err: unknown): { ttl: number; account: boolean } | undefined {
   if (!(err instanceof HttpError)) return undefined;
-  if ([400, 404, 422].includes(err.status)) return 10 * 60_000;
-  if ([401, 402, 403].includes(err.status)) return 60_000;
+  if ([400, 404, 422].includes(err.status)) return { ttl: 10 * 60_000, account: false };
+  if ([401, 402, 403].includes(err.status)) return { ttl: 60_000, account: true };
   return undefined;
 }
 
@@ -311,7 +313,8 @@ function missTtl(err: unknown): number | undefined {
 const modelOptionReads = new Map<string, { connection: Connection; read: Promise<boolean> }>();
 
 /**
- * Models whose read failed in a way asking again would not fix, with the
+ * Models whose read failed in a way asking again would not fix (by connection
+ * and model, or by connection alone for an account failure), with the
  * connection it failed on and when to forget that: not asked about again for a
  * while (each pause on a typo would otherwise read it again), but not kept for
  * good either, so a model the backend adds later is found. Saving the
@@ -540,10 +543,12 @@ export const useApp = create<AppState>()((set, get) => {
       if (!def.modelOptionKeys) return true;
       if (get().choices[connectionId]?.modelOptions?.[model]) return true;
       const key = JSON.stringify([connectionId, model]);
-      const miss = modelOptionMisses.get(key);
-      if (miss) {
+      const accountKey = JSON.stringify([connectionId]);
+      for (const k of [accountKey, key]) {
+        const miss = modelOptionMisses.get(k);
+        if (!miss) continue;
         if (miss.connection === connection && Date.now() < miss.until) return true;
-        modelOptionMisses.delete(key);
+        modelOptionMisses.delete(k);
       }
       const inFlight = modelOptionReads.get(key);
       if (inFlight?.connection === connection) return inFlight.read;
@@ -562,13 +567,13 @@ export const useApp = create<AppState>()((set, get) => {
         } catch (err) {
           // Not asked about again for a while when asking again would not help,
           // so the panel neither retries it nor reads it on the next pause.
-          const ttl = missTtl(err);
-          if (ttl === undefined || !current()) return false;
+          const miss = missFor(err);
+          if (!miss || !current()) return false;
           // Expired misses are dropped as new ones come in, so a session of
           // typos does not keep every one of them.
           const now = Date.now();
           for (const [k, m] of modelOptionMisses) if (now >= m.until) modelOptionMisses.delete(k);
-          modelOptionMisses.set(key, { connection, until: now + ttl });
+          modelOptionMisses.set(miss.account ? accountKey : key, { connection, until: now + miss.ttl });
           return true;
         } finally {
           // Unless a read for a newer connection has taken its place.
