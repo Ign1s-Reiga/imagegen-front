@@ -59,6 +59,7 @@ export function PromptBox({
   limit,
   backend,
   slots,
+  problem,
 }: {
   id: string;
   value: string;
@@ -73,6 +74,12 @@ export function PromptBox({
    * needed; an empty entry is a number the workflow has no input for.
    */
   slots?: string[];
+  /**
+   * Why the attached images cannot run the selected workflow, from the same
+   * check generating makes, so the hint never asks for something that then
+   * fails.
+   */
+  problem?: string | null;
 }) {
   const addReferences = useApp((s) => s.addReferences);
   const removeReference = useApp((s) => s.removeReference);
@@ -100,12 +107,13 @@ export function PromptBox({
         ? `${backend} takes at most ${limit} reference images; remove ${count - limit}.`
         : `${backend} cannot use reference images; remove them or switch backends.`
       : null;
-  // A workflow names what each image is for, and needs all of them.
-  const needed = slots?.map((title, i) => ({ number: i + 1, title })).filter((s) => s.title && s.number > count) ?? [];
+  // Before anything is attached, a workflow's needs are a hint; once images
+  // are attached and it still cannot run, a warning.
+  const blocked = warning ?? (count > 0 ? problem : null);
   const hint =
-    warning ??
-    (needed.length
-      ? `Attach ${needed.map((s) => `${s.number}: ${s.title}`).join(", ")}`
+    blocked ??
+    (problem
+      ? problem
       : count
         ? `${count} reference image${count === 1 ? "" : "s"}, sent in this order`
         : limit
@@ -163,7 +171,7 @@ export function PromptBox({
       />
       {(hint || limit > 0) && (
         <div className="flex items-center gap-2 pb-1 pl-2.5 pr-1">
-          <p className={cx("min-w-0 flex-1 text-[12px] leading-snug", warning ? "text-danger" : "text-fg-faint")}>{hint}</p>
+          <p className={cx("min-w-0 flex-1 text-[12px] leading-snug", blocked ? "text-danger" : "text-fg-faint")}>{hint}</p>
           {limit > 0 && (
             <IconButton label="Attach reference images" onClick={() => fileRef.current?.click()} disabled={count >= limit}>
               <Paperclip size={15} />
