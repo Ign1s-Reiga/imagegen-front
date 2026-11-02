@@ -165,7 +165,9 @@ interface AppState {
    * for a model already being read shares that read. Resolves true once the
    * model's options are known, false when the read failed and may succeed
    * later (nothing is kept, so a later call reads again). A failure that would
-   * not, such as an unknown model, is kept as no options and resolves true.
+   * not, such as an unknown model, resolves true, and that model is not asked
+   * about again for ten minutes. A read from before the connection was saved
+   * or deleted is not kept.
    */
   loadModelOptions(connectionId: string, model: string): Promise<boolean>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
@@ -284,14 +286,29 @@ function formFor(
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
- * A failed read that asking again would not fix: a 4xx other than a timeout
- * or rate limit, such as a bad key or a model the backend does not know.
+ * A failed read about the model itself, which asking again would not fix: a
+ * model the backend does not know (404) or a request it rejects (400, 422).
+ * Key, credit and permission errors (401, 402, 403) are not: the user can fix
+ * those outside the app, and the next look should see it.
  */
-const isFinalFailure = (err: unknown) =>
-  err instanceof HttpError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
+const isModelFailure = (err: unknown) => err instanceof HttpError && [400, 404, 422].includes(err.status);
 
-/** Per-model options reads in flight, by connection and model. */
-const modelOptionReads = new Map<string, Promise<boolean>>();
+/**
+ * Per-model options reads in flight, by connection and model, with the
+ * connection they started from. Saving a connection replaces its object, so a
+ * read from before the save (an old key, say) is neither shared nor kept.
+ */
+const modelOptionReads = new Map<string, { connection: Connection; read: Promise<boolean> }>();
+
+/**
+ * Models whose read failed in a way asking again would not fix, with when to
+ * forget that: not asked about again for a while (each pause on a typo would
+ * otherwise read it again), but not kept for good either, so a model the
+ * backend adds later is found. Kept out of the store, so typos do not pile up
+ * in its state.
+ */
+const modelOptionMisses = new Map<string, number>();
+const MODEL_MISS_TTL_MS = 10 * 60_000;
 
 export const useApp = create<AppState>()((set, get) => {
   /** Writes the current form into `forms` (shared part + active connection). */
@@ -510,30 +527,37 @@ export const useApp = create<AppState>()((set, get) => {
       if (!def.modelOptionKeys) return Promise.resolve(false);
       if (get().choices[connectionId]?.modelOptions?.[model]) return Promise.resolve(true);
       const key = JSON.stringify([connectionId, model]);
-      let read = modelOptionReads.get(key);
-      if (!read) {
-        const lookup = def.modelOptionKeys;
-        read = (async () => {
-          const keep = (keys: string[]) =>
-            set((s) => {
-              const modelOptions = { ...s.choices[connectionId]?.modelOptions, [model]: keys };
-              return { choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], modelOptions } } };
-            });
-          try {
-            keep(await lookup(await resolveConfig(connection), model, AbortSignal.timeout(20_000)));
-            return true;
-          } catch (err) {
-            // Kept as "no options" when asking again would not help, so the
-            // panel neither retries it nor reads it again on the next pause.
-            if (!isFinalFailure(err)) return false;
-            keep([]);
-            return true;
-          } finally {
-            modelOptionReads.delete(key);
-          }
-        })();
-        modelOptionReads.set(key, read);
+      const missUntil = modelOptionMisses.get(key);
+      if (missUntil !== undefined) {
+        if (Date.now() < missUntil) return Promise.resolve(true);
+        modelOptionMisses.delete(key);
       }
+      const inFlight = modelOptionReads.get(key);
+      if (inFlight?.connection === connection) return inFlight.read;
+      const lookup = def.modelOptionKeys;
+      // Whether this read still describes the connection: not saved or deleted since.
+      const current = () => get().connections.find((c) => c.id === connectionId) === connection;
+      const read = (async () => {
+        try {
+          const keys = await lookup(await resolveConfig(connection), model, AbortSignal.timeout(20_000));
+          if (!current()) return false;
+          set((s) => {
+            const modelOptions = { ...s.choices[connectionId]?.modelOptions, [model]: keys };
+            return { choices: { ...s.choices, [connectionId]: { ...s.choices[connectionId], modelOptions } } };
+          });
+          return true;
+        } catch (err) {
+          // Not asked about again for a while when asking again would not help,
+          // so the panel neither retries it nor reads it on the next pause.
+          if (!isModelFailure(err) || !current()) return false;
+          modelOptionMisses.set(key, Date.now() + MODEL_MISS_TTL_MS);
+          return true;
+        } finally {
+          // Unless a read for a newer connection has taken its place.
+          if (modelOptionReads.get(key)?.connection === connection) modelOptionReads.delete(key);
+        }
+      })();
+      modelOptionReads.set(key, { connection, read });
       return read;
     },
 
