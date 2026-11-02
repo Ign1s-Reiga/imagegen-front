@@ -18,12 +18,17 @@ const TOOL_KEYS = Object.fromEntries(TOOLS.map((t) => [t.key.toLowerCase(), t.to
 function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Under a dialog (New sprite, Export PNG) the sprite is out of sight, so
-      // nothing here runs: not the AI, a save, an undo or a tool key.
-      if (isModalOpen()) return;
-      const s = usePixel.getState();
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      // Under a dialog (New sprite, Export PNG) the sprite is out of sight, so
+      // nothing here runs: not the AI, a save, an undo or a tool key. Ctrl+S is
+      // still kept from the webview, which would offer to save the page;
+      // other keys keep their defaults, such as undo in a dialog's field.
+      if (isModalOpen()) {
+        if (mod && key === "s") e.preventDefault();
+        return;
+      }
+      const s = usePixel.getState();
 
       // In the assistant tab, Enter in the message box sends instead.
       if (mod && key === "enter" && s.aiPanel === "tools") {
