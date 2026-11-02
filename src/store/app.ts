@@ -168,8 +168,9 @@ interface AppState {
    * model's options are known, false when the read failed and may succeed
    * later (nothing is kept, so a later call reads again). A failure that would
    * not, such as an unknown model, resolves true, and that model is not asked
-   * about again for ten minutes. A read from before the connection was saved
-   * or deleted is not kept.
+   * about again for ten minutes; a rejected key or no credit, for a minute.
+   * Saving the connection forgets both. A read from before the connection was
+   * saved or deleted is not kept.
    */
   loadModelOptions(connectionId: string, model: string): Promise<boolean>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
@@ -290,10 +291,15 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
 /**
  * A failed read about the model itself, which asking again would not fix: a
  * model the backend does not know (404) or a request it rejects (400, 422).
- * Key, credit and permission errors (401, 402, 403) are not: the user can fix
- * those outside the app, and the next look should see it.
  */
 const isModelFailure = (err: unknown) => err instanceof HttpError && [400, 404, 422].includes(err.status);
+
+/**
+ * A failed read about the account: a rejected key, no credit or no permission
+ * (401, 402, 403). Asking again at once would not fix it either, but the user
+ * may fix it outside the app (more credit, say), so it is remembered briefly.
+ */
+const isAccountFailure = (err: unknown) => err instanceof HttpError && [401, 402, 403].includes(err.status);
 
 /**
  * Per-model options reads in flight, by connection and model, with the
@@ -312,6 +318,7 @@ const modelOptionReads = new Map<string, { connection: Connection; read: Promise
  */
 const modelOptionMisses = new Map<string, { connection: Connection; until: number }>();
 const MODEL_MISS_TTL_MS = 10 * 60_000;
+const ACCOUNT_MISS_TTL_MS = 60_000;
 
 export const useApp = create<AppState>()((set, get) => {
   /** Writes the current form into `forms` (shared part + active connection). */
@@ -555,8 +562,9 @@ export const useApp = create<AppState>()((set, get) => {
         } catch (err) {
           // Not asked about again for a while when asking again would not help,
           // so the panel neither retries it nor reads it on the next pause.
-          if (!isModelFailure(err) || !current()) return false;
-          modelOptionMisses.set(key, { connection, until: Date.now() + MODEL_MISS_TTL_MS });
+          const ttl = isModelFailure(err) ? MODEL_MISS_TTL_MS : isAccountFailure(err) ? ACCOUNT_MISS_TTL_MS : 0;
+          if (!ttl || !current()) return false;
+          modelOptionMisses.set(key, { connection, until: Date.now() + ttl });
           return true;
         } finally {
           // Unless a read for a newer connection has taken its place.
