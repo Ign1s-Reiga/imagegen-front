@@ -1,5 +1,5 @@
 import { base64ToBytes, sniffImageMime, toDataUri } from "@/lib/bytes";
-import { abortError, httpJson, isAbortError, trimSlash, type HttpOptions } from "@/lib/http";
+import { abortError, httpJson, trimSlash, type HttpOptions } from "@/lib/http";
 
 import type { ChatModel, ChatService } from "./chat";
 import {
@@ -90,18 +90,20 @@ async function sharedRead<T>(
 
 /**
  * For a generation that can go on without an answer: undefined when the read
- * failed, but a cancel still ends the run.
+ * failed, but the run's own cancel still ends it. Checked on the run's signal,
+ * not the error: a read that times out also rejects with an abort error, and
+ * that is a failed read, not a cancel.
  */
-function orUnknown<T>(read: Promise<T>): Promise<T | undefined> {
+function orUnknown<T>(read: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
   return read.catch((err: unknown) => {
-    if (isAbortError(err)) throw err;
+    if (signal.aborted) throw err;
     return undefined;
   });
 }
 
 /** A model's supported parameters; undefined when the list cannot be read (the request then goes out unfitted). */
 async function imageParamsFor(config: ConnectionConfig, model: string, signal: AbortSignal) {
-  const list = await orUnknown(sharedRead(imageParams, `${base(config)}/images/models`, config, signal));
+  const list = await orUnknown(sharedRead(imageParams, `${base(config)}/images/models`, config, signal), signal);
   return list?.data?.find((m) => m.id === model)?.supported_parameters;
 }
 
@@ -328,7 +330,7 @@ export const openrouter: ProviderDefinition = {
     // timeout at most rather than one after the other.
     const [supported, accepted] = await Promise.all([
       imageParamsFor(config, model, ctx.signal),
-      Object.keys(passthrough).length ? orUnknown(passthroughKeys(config, model, ctx.signal)) : undefined,
+      Object.keys(passthrough).length ? orUnknown(passthroughKeys(config, model, ctx.signal), ctx.signal) : undefined,
     ]);
     // A model whose list leaves out input_references takes no images; without
     // this check fitImageBody would drop them and an edit would quietly become a
