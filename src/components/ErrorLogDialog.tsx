@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Copy, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useApp } from "@/store/app";
 
@@ -14,6 +14,7 @@ import { Button, Dialog, IconButton } from "./ui";
  */
 export function ErrorLogDialog({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const notify = useApp((s) => s.notify);
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export function ErrorLogDialog({ title, text, onClose }: { title: string; text: 
   };
 
   return (
-    <Dialog label={title} onClose={onClose} className="flex max-h-full w-[min(960px,100%)] flex-col">
+    <Dialog label={title} onClose={onClose} initialFocus={closeRef} className="flex max-h-full w-[min(960px,100%)] flex-col">
       <div className="flex items-center gap-2 border-b border-line px-5 py-3">
         <h2 className="flex-1 text-[15px] font-medium text-fg">{title}</h2>
         <IconButton label="Close" onClick={onClose}>
@@ -50,7 +51,9 @@ export function ErrorLogDialog({ title, text, onClose }: { title: string; text: 
           {copied ? <Check size={14} /> : <Copy size={14} />}
           {copied ? "Copied" : "Copy"}
         </Button>
-        <Button onClick={onClose}>Close</Button>
+        <Button ref={closeRef} onClick={onClose}>
+          Close
+        </Button>
       </div>
     </Dialog>
   );
