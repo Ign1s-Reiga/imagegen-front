@@ -421,16 +421,23 @@ export const useApp = create<AppState>()((set, get) => {
       // version, so one edited on purpose in 0.2.1 is upgraded too; any whose
       // mappings change are named, so the user can check them.
       const workflows = settings.workflows.map(upgradeReferenceBindings);
-      if (workflows.some((w, i) => w !== settings.workflows[i])) {
-        // Not saved means it runs again next start; say so rather than leave
-        // an unhandled rejection in the console.
-        saveSetting("workflows", workflows).catch((err: unknown) =>
-          set({ notice: `Could not save the updated workflow inputs: ${errorMessage(err)}` }),
-        );
-      }
       const remapped = workflows
         .filter((w, i) => JSON.stringify(w.bindings) !== JSON.stringify(settings.workflows[i].bindings))
         .map((w) => w.name);
+      const remappedNotice = remapped.length
+        ? `Reference inputs were updated in ${remapped.join(", ")}. Check them in the workflow inputs if you had changed them.`
+        : null;
+      if (workflows.some((w, i) => w !== settings.workflows[i])) {
+        // Not saved means it runs again next start; say so rather than leave
+        // an unhandled rejection in the console, keeping the workflows named.
+        saveSetting("workflows", workflows).catch((err: unknown) =>
+          set({
+            notice: [remappedNotice, `Could not save the updated workflow inputs: ${errorMessage(err)}`]
+              .filter(Boolean)
+              .join(" "),
+          }),
+        );
+      }
       set({
         ready: true,
         connections: settings.connections,
@@ -438,11 +445,7 @@ export const useApp = create<AppState>()((set, get) => {
         forms: settings.forms,
         form: formFor(active, settings.forms, base),
         workflows,
-        ...(remapped.length
-          ? {
-              notice: `Reference inputs were updated in ${remapped.join(", ")}. Check them in the workflow inputs if you had changed them.`,
-            }
-          : {}),
+        ...(remappedNotice ? { notice: remappedNotice } : {}),
         assistant: settings.assistant,
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,
