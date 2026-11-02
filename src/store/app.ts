@@ -553,8 +553,9 @@ export const useApp = create<AppState>()((set, get) => {
       const inFlight = modelOptionReads.get(key);
       if (inFlight?.connection === connection) return inFlight.read;
       const lookup = def.modelOptionKeys;
-      // Whether this read still describes the connection: not saved or deleted since.
-      const current = () => get().connections.find((c) => c.id === connectionId) === connection;
+      // Whether a connection object is still the saved one: not saved again or deleted since.
+      const isCurrent = (c: Connection) => get().connections.find((x) => x.id === c.id) === c;
+      const current = () => isCurrent(connection);
       const read = (async () => {
         try {
           const keys = await lookup(await resolveConfig(connection), model, AbortSignal.timeout(20_000));
@@ -569,10 +570,13 @@ export const useApp = create<AppState>()((set, get) => {
           // so the panel neither retries it nor reads it on the next pause.
           const miss = missFor(err);
           if (!miss || !current()) return false;
-          // Expired misses are dropped as new ones come in, so a session of
-          // typos does not keep every one of them.
+          // Expired misses, and ones for a connection since saved or deleted
+          // (which can never match again), are dropped as new ones come in, so
+          // a session of typos or edits does not keep every one of them.
           const now = Date.now();
-          for (const [k, m] of modelOptionMisses) if (now >= m.until) modelOptionMisses.delete(k);
+          for (const [k, m] of modelOptionMisses) {
+            if (now >= m.until || !isCurrent(m.connection)) modelOptionMisses.delete(k);
+          }
           modelOptionMisses.set(miss.account ? accountKey : key, { connection, until: now + miss.ttl });
           return true;
         } finally {
