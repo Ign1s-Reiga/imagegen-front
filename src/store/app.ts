@@ -414,12 +414,12 @@ export const useApp = create<AppState>()((set, get) => {
       const recent = await listGenerations({ limit: 40 })
         .then((page) => page.generations)
         .catch(() => []);
-      // Workflows saved before 0.2.2 have their reference loaders mapped as
-      // importing them now would, once: the result is saved with its version,
-      // so a mapping changed in the editor afterwards is not undone next start.
-      // Saved workflows do not say which version made them, so one edited on
-      // purpose in 0.2.1 is upgraded too; any whose mappings change are named,
-      // so the user can check them.
+      // Workflows saved below the current bindings version have their
+      // reference loaders mapped as importing them now would, once: the result
+      // is saved with its version, so a mapping changed in the editor
+      // afterwards is not undone next start. Those saved before 0.2.2 carry no
+      // version, so one edited on purpose in 0.2.1 is upgraded too; any whose
+      // mappings change are named, so the user can check them.
       const workflows = settings.workflows.map(upgradeReferenceBindings);
       if (workflows.some((w, i) => w !== settings.workflows[i])) {
         // Not saved means it runs again next start; say so rather than leave

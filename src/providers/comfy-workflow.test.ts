@@ -392,6 +392,25 @@ test("a reference loader whose image is wired from another node is not mapped", 
   assert.equal(targetOf(saved(graph), "6", "image"), undefined);
 });
 
+test("a wired reference loader mapped by 0.2.2 is unmapped", () => {
+  const graph = mossGraph();
+  graph["6"].inputs.image = ["12", 0];
+  graph["12"] = { class_type: "LoadImageFromUrl", inputs: { url: "https://example.com/a.png" } };
+  // As 0.2.2 saved it: version 1, with the wired loader mapped to Reference 1.
+  const old: SavedWorkflow = {
+    ...saved(graph),
+    bindings: [...saved(graph).bindings, { nodeId: "6", input: "image", target: "reference1" }],
+    bindingsVersion: 1,
+  };
+  const upgraded = upgradeReferenceBindings(old);
+  assert.equal(targetOf(upgraded, "6", "image"), undefined);
+  assert.equal(targetOf(upgraded, "5", "image"), "reference2");
+  assert.equal(upgraded.bindingsVersion, BINDINGS_VERSION);
+  // A version 1 workflow with nothing wired keeps every mapping.
+  const plain: SavedWorkflow = { ...saved(mossGraph()), bindingsVersion: 1 };
+  assert.deepEqual(upgradeReferenceBindings(plain).bindings, plain.bindings);
+});
+
 test("a reference loader mapped to something else on purpose is left alone", () => {
   const wf = saved(mossGraph());
   const chosen: SavedWorkflow = {
