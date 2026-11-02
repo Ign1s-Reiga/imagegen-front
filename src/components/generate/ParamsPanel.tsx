@@ -439,7 +439,9 @@ export function ParamsPanel() {
                 </IconButton>
               )
             }
-            help={choices?.error ? <span className="text-danger">Could not load models: {choices.error}</span> : undefined}
+            help={choices?.error ? <span className="line-clamp-3 break-words text-danger" title={choices.error}>
+                  Could not load models: {choices.error}
+                </span> : undefined}
           >
             <TextInput
               id={modelId}
