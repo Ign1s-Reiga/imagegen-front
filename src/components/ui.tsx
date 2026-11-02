@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type RefObject, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 
@@ -76,11 +76,14 @@ export function Dialog({
   label,
   onClose,
   className,
+  initialFocus,
   children,
 }: {
   label: string;
   onClose: () => void;
   className?: string;
+  /** The control to focus on open, when it is not the first one. */
+  initialFocus?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -89,8 +92,8 @@ export function Dialog({
   // Focus moves in once, on open: a caller passing a new `onClose` each
   // render would otherwise pull focus back to the first control as it types.
   useEffect(() => {
-    ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
-  }, []);
+    (initialFocus?.current ?? ref.current?.querySelector<HTMLElement>("input, select, textarea, button"))?.focus();
+  }, [initialFocus]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
