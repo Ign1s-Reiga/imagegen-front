@@ -430,17 +430,15 @@ export async function referenceUploadName(image: InputImage): Promise<string> {
 }
 
 /**
- * Uploads the references in order under their content names, and returns the
- * names the server reports back (which a workflow must load, as the server
- * may rename or file them in a subfolder).
+ * Uploads the references under their content names, all at once, and returns
+ * the names the server reports back in attachment order (which a workflow
+ * must load, as the server may rename or file them in a subfolder).
  */
-export async function uploadReferences(
+export function uploadReferences(
   references: InputImage[],
   upload: (image: InputImage, name: string) => Promise<string>,
 ): Promise<string[]> {
-  const names: string[] = [];
-  for (const image of references) names.push(await upload(image, await referenceUploadName(image)));
-  return names;
+  return Promise.all(references.map(async (image) => upload(image, await referenceUploadName(image))));
 }
 
 /** What the parameter panel can offer for an imported workflow. */
