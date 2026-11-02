@@ -69,14 +69,22 @@ export async function http(url: string, options: HttpOptions = {}): Promise<Resp
   return response;
 }
 
+/**
+ * The response body parsed as JSON. A body of `null` parses, but no caller
+ * expects it and reading a field from it throws a TypeError far from here, so
+ * it is rejected like any other body that is not what was asked for.
+ */
 export async function httpJson<T>(url: string, options: HttpOptions = {}): Promise<T> {
   const response = await http(url, options);
   const text = await response.text();
+  let body: unknown;
   try {
-    return JSON.parse(text) as T;
+    body = JSON.parse(text);
   } catch {
     throw new Error(`Expected JSON from ${url}, got: ${text.slice(0, 200)}`);
   }
+  if (body === null) throw new Error(`Expected JSON from ${url}, got: null`);
+  return body as T;
 }
 
 export async function httpImage(
