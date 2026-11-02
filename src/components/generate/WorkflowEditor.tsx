@@ -13,7 +13,7 @@ import {
 } from "@/providers/comfy-workflow";
 import { useApp } from "@/store/app";
 
-import { Button, TextInput } from "../ui";
+import { Button, TextInput, useRestoreFocus } from "../ui";
 
 type Target = WorkflowBinding["target"] | "";
 
@@ -34,6 +34,7 @@ export function WorkflowEditor({ workflow, onClose }: { workflow: SavedWorkflow;
   const dialogRef = useRef<HTMLDivElement>(null);
   const groups = useMemo(() => editableInputs(workflow.graph), [workflow.graph]);
 
+  useRestoreFocus();
   useEffect(() => dialogRef.current?.focus(), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
