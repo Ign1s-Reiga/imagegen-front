@@ -12,6 +12,9 @@ export type ComfyWorkflow = Record<string, ComfyNode>;
 
 export const SAVE_NODE_ID = "9";
 
+/** The current `SavedWorkflow.bindingsVersion`: reference loaders mapped as in 0.2.1. */
+export const BINDINGS_VERSION = 1;
+
 /** File names a generation uploaded to Comfy's input folder. */
 export interface UploadedRefs {
   initImage?: string;
@@ -173,6 +176,12 @@ export interface SavedWorkflow {
   graph: ComfyWorkflow;
   bindings: WorkflowBinding[];
   createdAt: number;
+  /**
+   * Which version of input detection the bindings are from: absent for one
+   * saved before 0.2.1, then `BINDINGS_VERSION`. Upgrades run once, so a
+   * mapping changed in the editor afterwards stays.
+   */
+  bindingsVersion?: number;
 }
 
 export type Primitive = string | number | boolean;
@@ -379,10 +388,14 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
  * (0.1.x left every other LoadImage; 0.2.0 a second loader of the same
  * number). Each of those is dropped from the input image, and every one
  * titled Reference 1 to 4 that maps to nothing is given its reference. A
- * mapping to anything else is left alone. Returns the same object when
- * nothing changes.
+ * mapping to anything else is left alone.
+ *
+ * Runs once: a workflow already at `BINDINGS_VERSION` is returned as it is,
+ * so a mapping the user made in the editor since is never undone. Any other
+ * comes back as a new object at that version, for the caller to save.
  */
 export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow {
+  if ((workflow.bindingsVersion ?? 0) >= BINDINGS_VERSION) return workflow;
   const isReferenceLoader = (nodeId: string) => {
     const node = workflow.graph[nodeId];
     return node?.class_type === "LoadImage" && hasReferenceTitle(node);
@@ -390,14 +403,12 @@ export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow
   const bindings = workflow.bindings.filter(
     (b) => !(b.target === "initImage" && b.input === "image" && isReferenceLoader(b.nodeId)),
   );
-  let changed = bindings.length !== workflow.bindings.length;
   for (const [nodeId, node] of Object.entries(workflow.graph)) {
     const n = node.class_type === "LoadImage" ? referenceTitleNumber(node) : null;
     if (!n || bindings.some((b) => b.nodeId === nodeId && b.input === "image")) continue;
     bindings.push({ nodeId, input: "image", target: REFERENCE_PARAMS[n - 1] });
-    changed = true;
   }
-  return changed ? { ...workflow, bindings } : workflow;
+  return { ...workflow, bindings, bindingsVersion: BINDINGS_VERSION };
 }
 
 /**

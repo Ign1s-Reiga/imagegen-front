@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  BINDINGS_VERSION,
   applyWorkflow,
   buildComfyWorkflow,
   detectBindings,
@@ -327,11 +328,22 @@ test("a workflow saved before 0.2.0 has its Reference loaders mapped to referenc
   assert.equal(workflowCapabilities(upgraded, BASE_CAPS).img2imgOnly, false);
   assert.equal(workflowCapabilities(upgraded, BASE_CAPS).references, 2);
   assert.equal(workflowReferenceProblem(upgraded, 2), null);
-  // Bindings it does not concern, and workflows with nothing to move, are left alone.
+  assert.equal(upgraded.bindingsVersion, BINDINGS_VERSION);
+  // Bindings it does not concern, and workflows with nothing to move, keep their mappings.
   const current = saved(graph);
-  assert.equal(upgradeReferenceBindings(current), current);
+  assert.deepEqual(upgradeReferenceBindings(current).bindings, current.bindings);
   const plain = saved(img2imgGraph());
-  assert.equal(upgradeReferenceBindings(plain), plain);
+  assert.deepEqual(upgradeReferenceBindings(plain).bindings, plain.bindings);
+});
+
+test("the upgrade runs once, so a later choice in the editor stays", () => {
+  const upgraded = upgradeReferenceBindings(saved(mossGraph()));
+  // The user then maps Reference 1 to the input image on purpose.
+  const chosen: SavedWorkflow = {
+    ...upgraded,
+    bindings: upgraded.bindings.map((b) => (b.nodeId === "6" ? { ...b, target: "initImage" as const } : b)),
+  };
+  assert.equal(upgradeReferenceBindings(chosen), chosen);
 });
 
 test("a workflow saved in 0.2.0 gets the fixes for repeated and past-4 reference titles", () => {
@@ -358,7 +370,7 @@ test("a reference loader mapped to something else on purpose is left alone", () 
     ...wf,
     bindings: wf.bindings.map((b) => (b.nodeId === "6" ? { ...b, target: "field" as const, label: "Layout" } : b)),
   };
-  assert.equal(upgradeReferenceBindings(chosen), chosen);
+  assert.deepEqual(upgradeReferenceBindings(chosen).bindings, chosen.bindings);
 });
 
 /** An ordinary img2img graph with an input image and a mask. */
