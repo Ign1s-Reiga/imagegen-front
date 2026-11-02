@@ -3,6 +3,8 @@
 import { Check, Copy, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useApp } from "@/store/app";
+
 import { Button, Dialog, IconButton } from "./ui";
 
 /**
@@ -12,6 +14,7 @@ import { Button, Dialog, IconButton } from "./ui";
  */
 export function ErrorLogDialog({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const notify = useApp((s) => s.notify);
 
   useEffect(() => {
     if (!copied) return;
@@ -22,7 +25,12 @@ export function ErrorLogDialog({ title, text, onClose }: { title: string; text: 
   const copy = () => {
     navigator.clipboard.writeText(text).then(
       () => setCopied(true),
-      () => setCopied(false),
+      // The webview can refuse the clipboard; say so rather than leave the
+      // user to paste whatever was there before.
+      (err: unknown) => {
+        setCopied(false);
+        notify(`Could not copy the error: ${err instanceof Error ? err.message : String(err)}`);
+      },
     );
   };
 
