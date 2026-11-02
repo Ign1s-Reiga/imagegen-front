@@ -25,6 +25,7 @@ import {
   detectBindings,
   parseWorkflowJson,
   unsupportedReferenceTitles,
+  upgradeReferenceBindings,
   workflowReferenceProblem,
   workflowDefaults,
   type SavedWorkflow,
@@ -418,7 +419,9 @@ export const useApp = create<AppState>()((set, get) => {
         activeConnectionId: active?.id ?? null,
         forms: settings.forms,
         form: formFor(active, settings.forms, base),
-        workflows: settings.workflows,
+        // Workflows imported before 0.2.0 had their Reference loaders taken
+        // for the input image; they are mapped as importing them now would.
+        workflows: settings.workflows.map(upgradeReferenceBindings),
         assistant: settings.assistant,
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,

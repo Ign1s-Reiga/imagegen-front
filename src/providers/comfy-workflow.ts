@@ -372,6 +372,24 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
 }
 
 /**
+ * A workflow saved before Reference inputs existed, with each LoadImage titled
+ * "Reference 1" to "Reference 4" moved from the input image to its reference,
+ * as importing it now would map it. Returns the same object when there is
+ * nothing to move, so an unchanged workflow is not saved again.
+ */
+export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow {
+  let changed = false;
+  const bindings = workflow.bindings.map((binding) => {
+    const node = workflow.graph[binding.nodeId];
+    const n = node?.class_type === "LoadImage" && binding.target === "initImage" ? referenceTitleNumber(node) : null;
+    if (!n) return binding;
+    changed = true;
+    return { ...binding, target: REFERENCE_PARAMS[n - 1] };
+  });
+  return changed ? { ...workflow, bindings } : workflow;
+}
+
+/**
  * The workflow's reference inputs, numbered 1 up to the highest one mapped,
  * with the titles of the nodes each fills; an empty list for a number with no
  * input (a gap, such as Reference 1 and 3 mapped but not 2).
