@@ -472,13 +472,26 @@ export async function referenceUploadName(image: InputImage): Promise<string> {
 /**
  * Uploads the references under their content names, all at once, and returns
  * the names the server reports back in attachment order (which a workflow
- * must load, as the server may rename or file them in a subfolder).
+ * must load, as the server may rename or file them in a subfolder). The same
+ * image attached twice is sent once, so two uploads of it never race on the
+ * server.
  */
-export function uploadReferences(
+export async function uploadReferences(
   references: InputImage[],
   upload: (image: InputImage, name: string) => Promise<string>,
 ): Promise<string[]> {
-  return Promise.all(references.map(async (image) => upload(image, await referenceUploadName(image))));
+  const names = await Promise.all(references.map(referenceUploadName));
+  const sent = new Map<string, Promise<string>>();
+  return Promise.all(
+    references.map((image, i) => {
+      let uploaded = sent.get(names[i]);
+      if (!uploaded) {
+        uploaded = upload(image, names[i]);
+        sent.set(names[i], uploaded);
+      }
+      return uploaded;
+    }),
+  );
 }
 
 /** What the parameter panel can offer for an imported workflow. */
