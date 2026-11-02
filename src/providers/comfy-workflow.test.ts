@@ -406,6 +406,9 @@ test("a wired reference loader mapped by 0.2.2 is unmapped", () => {
   assert.equal(targetOf(upgraded, "6", "image"), undefined);
   assert.equal(targetOf(upgraded, "5", "image"), "reference2");
   assert.equal(upgraded.bindingsVersion, BINDINGS_VERSION);
+  // A mapping to a node no longer in the graph is not wired, so it stays.
+  const stale: SavedWorkflow = { ...old, bindings: [...old.bindings, { nodeId: "14", input: "image", target: "reference3" }] };
+  assert.equal(targetOf(upgradeReferenceBindings(stale), "14", "image"), "reference3");
   // A version 1 workflow with nothing wired keeps every mapping.
   const plain: SavedWorkflow = { ...saved(mossGraph()), bindingsVersion: 1 };
   assert.deepEqual(upgradeReferenceBindings(plain).bindings, plain.bindings);
