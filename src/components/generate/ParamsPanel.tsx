@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   boundInput,
   fieldKey,
+  workflowReferenceProblem,
   workflowReferenceSlots,
   type SavedWorkflow,
   type WorkflowBinding,
@@ -329,6 +330,7 @@ export function ParamsPanel() {
               limit={caps.references}
               backend={def.label}
               slots={workflow ? workflowReferenceSlots(workflow).map((s) => s.titles[0] ?? "") : undefined}
+              problem={workflow ? workflowReferenceProblem(workflow, form.references.length) : null}
             />
           </Field>
         )}
