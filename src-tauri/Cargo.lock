@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "imagegen-front"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "keyring",
  "log",
