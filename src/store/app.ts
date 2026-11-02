@@ -564,7 +564,11 @@ export const useApp = create<AppState>()((set, get) => {
           // so the panel neither retries it nor reads it on the next pause.
           const ttl = isModelFailure(err) ? MODEL_MISS_TTL_MS : isAccountFailure(err) ? ACCOUNT_MISS_TTL_MS : 0;
           if (!ttl || !current()) return false;
-          modelOptionMisses.set(key, { connection, until: Date.now() + ttl });
+          // Expired misses are dropped as new ones come in, so a session of
+          // typos does not keep every one of them.
+          const now = Date.now();
+          for (const [k, m] of modelOptionMisses) if (now >= m.until) modelOptionMisses.delete(k);
+          modelOptionMisses.set(key, { connection, until: now + ttl });
           return true;
         } finally {
           // Unless a read for a newer connection has taken its place.
