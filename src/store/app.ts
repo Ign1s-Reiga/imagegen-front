@@ -421,8 +421,12 @@ export const useApp = create<AppState>()((set, get) => {
       // version, so one edited on purpose in 0.2.1 is upgraded too; any whose
       // mappings change are named, so the user can check them.
       const workflows = settings.workflows.map(upgradeReferenceBindings);
+      // Only an upgraded workflow is a new object, so the rest are not compared.
       const remapped = workflows
-        .filter((w, i) => JSON.stringify(w.bindings) !== JSON.stringify(settings.workflows[i].bindings))
+        .filter((w, i) => {
+          const before = settings.workflows[i];
+          return w !== before && JSON.stringify(w.bindings) !== JSON.stringify(before.bindings);
+        })
         .map((w) => w.name);
       const remappedNotice = remapped.length
         ? `Reference inputs were updated in ${remapped.join(", ")}. Check them in the workflow inputs if you had changed them.`
