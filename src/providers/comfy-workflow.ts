@@ -14,8 +14,8 @@ export const SAVE_NODE_ID = "9";
 
 /**
  * The current `SavedWorkflow.bindingsVersion`: 1 has reference loaders mapped
- * as 0.2.2 did, 2 (0.2.3 on) also has none mapped whose image is wired from
- * another node.
+ * as 0.2.2 and 0.2.3 did, 2 (0.2.4 on) also has none mapped whose image is
+ * wired from another node.
  */
 export const BINDINGS_VERSION = 2;
 
@@ -394,9 +394,11 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
  * titled Reference 1 to 4 that maps to nothing is given its reference. A
  * mapping to anything else is left alone.
  *
- * Version 1 (0.2.2) also mapped loaders whose image is wired from another
- * node, which a run would then replace with the upload; a workflow below
- * version 2 has any reference mapped to a wired input dropped. The editor
+ * 0.2.2's upgrade also mapped loaders whose image is wired from another
+ * node, which a run would then replace with the upload, and saved them at
+ * version 1 (0.2.3 stopped mapping them but kept the version, so it did not
+ * undo them); a workflow below version 2 has any reference mapped to a
+ * wired input dropped. The editor
  * only offers file names, so such a mapping was never the user's choice.
  *
  * Runs once per version: a workflow already at `BINDINGS_VERSION` is
