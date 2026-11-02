@@ -459,9 +459,11 @@ export function workflowReferenceProblem(workflow: SavedWorkflow, count: number)
 /**
  * The name a reference is uploaded under, from a hash of its bytes. Two
  * different images never share a name, whatever they were called, so neither
- * can stand in for the other or for a previous run's upload; the same image
- * always gets the same name, so sending it again reuses one file rather than
- * leaving a new copy on the server each run (or after a failed upload).
+ * can stand in for the other or for a previous run's upload. The same image
+ * always gets the same name, so a server that keeps an identical file it
+ * already has (ComfyUI does, where its upload compares images) reuses one
+ * file rather than gaining a copy each run; one that does not adds a renamed
+ * copy instead, which is still this same image.
  */
 export async function referenceUploadName(image: InputImage): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", image.bytes));
