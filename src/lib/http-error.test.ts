@@ -25,6 +25,13 @@ test("a raw provider body that is plain text or an object is used as it is", () 
   assert.equal(describeHttpError(400, object, URL), "openrouter.ai returned 400: full reason");
 });
 
+test("a long message is kept up to 4000 characters, then marked as cut", () => {
+  const long = "x".repeat(1000);
+  assert.equal(describeHttpError(400, long, URL), `openrouter.ai returned 400: ${long}`);
+  const page = "y".repeat(5000);
+  assert.equal(describeHttpError(502, page, URL), `openrouter.ai returned 502: ${"y".repeat(4000)}…`);
+});
+
 test("without a usable raw body the API's own message stays", () => {
   const empty = JSON.stringify({ error: { message: "Model not found", metadata: { raw: "{}" } } });
   assert.equal(describeHttpError(404, empty, URL), "openrouter.ai returned 404: Model not found");
