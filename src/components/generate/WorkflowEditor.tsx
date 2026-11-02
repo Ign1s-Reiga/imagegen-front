@@ -43,9 +43,15 @@ export function WorkflowEditor({ workflow, onClose }: { workflow: SavedWorkflow;
   const setLabel = (nodeId: string, input: string, label: string) =>
     setBindings(bindings.map((b) => (b.nodeId === nodeId && b.input === input ? { ...b, label } : b)));
 
+  // A failed write leaves the editor open with the edits, and says why.
   const save = async () => {
     const updated = { ...workflow, name: name.trim() || workflow.name, bindings };
-    await saveWorkflow(updated);
+    try {
+      await saveWorkflow(updated);
+    } catch (err) {
+      notify(`Could not save the workflow: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     // Newly shown fields start at their saved values; values already edited stay.
     const { form } = useApp.getState();
     if (form.options.workflow === workflow.id) {
@@ -150,7 +156,12 @@ export function WorkflowEditor({ workflow, onClose }: { workflow: SavedWorkflow;
               <Button
                 variant="danger"
                 onClick={async () => {
-                  await deleteWorkflow(workflow.id);
+                  try {
+                    await deleteWorkflow(workflow.id);
+                  } catch (err) {
+                    notify(`Could not remove the workflow: ${err instanceof Error ? err.message : String(err)}`);
+                    return;
+                  }
                   notify(`${workflow.name} removed`);
                   onClose();
                 }}
