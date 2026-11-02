@@ -321,13 +321,44 @@ test("a workflow saved before 0.2.0 has its Reference loaders mapped to referenc
     ],
   };
   const upgraded = upgradeReferenceBindings(old);
+  // Both loaders: the one taken for the input image, and the one left unmapped.
   assert.equal(targetOf(upgraded, "5", "image"), "reference2");
+  assert.equal(targetOf(upgraded, "6", "image"), "reference1");
   assert.equal(workflowCapabilities(upgraded, BASE_CAPS).img2imgOnly, false);
+  assert.equal(workflowCapabilities(upgraded, BASE_CAPS).references, 2);
+  assert.equal(workflowReferenceProblem(upgraded, 2), null);
   // Bindings it does not concern, and workflows with nothing to move, are left alone.
   const current = saved(graph);
   assert.equal(upgradeReferenceBindings(current), current);
   const plain = saved(img2imgGraph());
   assert.equal(upgradeReferenceBindings(plain), plain);
+});
+
+test("a workflow saved in 0.2.0 gets the fixes for repeated and past-4 reference titles", () => {
+  const graph = mossGraph();
+  graph["12"] = { class_type: "LoadImage", inputs: { image: "old-face.png" }, _meta: { title: "Reference 1 — Face crop" } };
+  graph["13"] = { class_type: "LoadImage", inputs: { image: "extra.png" }, _meta: { title: "Reference 5" } };
+  // As 0.2.0 saved it: the second Reference 1 unmapped, Reference 5 as the input image.
+  const old: SavedWorkflow = {
+    ...saved(graph),
+    bindings: [
+      ...saved(graph).bindings.filter((b) => b.nodeId !== "12" && b.nodeId !== "13"),
+      { nodeId: "13", input: "image", target: "initImage" },
+    ],
+  };
+  const upgraded = upgradeReferenceBindings(old);
+  assert.equal(targetOf(upgraded, "12", "image"), "reference1");
+  assert.equal(targetOf(upgraded, "13", "image"), undefined);
+  assert.equal(workflowCapabilities(upgraded, BASE_CAPS).img2imgOnly, false);
+});
+
+test("a reference loader mapped to something else on purpose is left alone", () => {
+  const wf = saved(mossGraph());
+  const chosen: SavedWorkflow = {
+    ...wf,
+    bindings: wf.bindings.map((b) => (b.nodeId === "6" ? { ...b, target: "field" as const, label: "Layout" } : b)),
+  };
+  assert.equal(upgradeReferenceBindings(chosen), chosen);
 });
 
 /** An ordinary img2img graph with an input image and a mask. */

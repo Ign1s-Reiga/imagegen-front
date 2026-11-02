@@ -372,20 +372,31 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
 }
 
 /**
- * A workflow saved before Reference inputs existed, with each LoadImage titled
- * "Reference 1" to "Reference 4" moved from the input image to its reference,
- * as importing it now would map it. Returns the same object when there is
- * nothing to move, so an unchanged workflow is not saved again.
+ * A saved workflow with its LoadImage nodes titled as references mapped as
+ * importing it now would. Workflows saved before 0.2.1 may have one taken for
+ * the input image (0.1.x took the lowest-numbered LoadImage, whatever its
+ * title; 0.2.0 took one titled past Reference 4), and others left unmapped
+ * (0.1.x left every other LoadImage; 0.2.0 a second loader of the same
+ * number). Each of those is dropped from the input image, and every one
+ * titled Reference 1 to 4 that maps to nothing is given its reference. A
+ * mapping to anything else is left alone. Returns the same object when
+ * nothing changes.
  */
 export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow {
-  let changed = false;
-  const bindings = workflow.bindings.map((binding) => {
-    const node = workflow.graph[binding.nodeId];
-    const n = node?.class_type === "LoadImage" && binding.target === "initImage" ? referenceTitleNumber(node) : null;
-    if (!n) return binding;
+  const isReferenceLoader = (nodeId: string) => {
+    const node = workflow.graph[nodeId];
+    return node?.class_type === "LoadImage" && hasReferenceTitle(node);
+  };
+  const bindings = workflow.bindings.filter(
+    (b) => !(b.target === "initImage" && b.input === "image" && isReferenceLoader(b.nodeId)),
+  );
+  let changed = bindings.length !== workflow.bindings.length;
+  for (const [nodeId, node] of Object.entries(workflow.graph)) {
+    const n = node.class_type === "LoadImage" ? referenceTitleNumber(node) : null;
+    if (!n || bindings.some((b) => b.nodeId === nodeId && b.input === "image")) continue;
+    bindings.push({ nodeId, input: "image", target: REFERENCE_PARAMS[n - 1] });
     changed = true;
-    return { ...binding, target: REFERENCE_PARAMS[n - 1] };
-  });
+  }
   return changed ? { ...workflow, bindings } : workflow;
 }
 
