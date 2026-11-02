@@ -336,11 +336,13 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
 
   // Reference images, by the number in the node's title, so the order holds
   // whatever the node ids. Only titled nodes: any other LoadImage may be the
-  // input image or a fixed asset of the workflow.
+  // input image or a fixed asset of the workflow. Every node with a number
+  // gets that image, so a second loader for the same reference never keeps
+  // the file it was saved with.
   const loaders = byClass(/^LoadImage$/);
   for (const [id, node] of loaders) {
     const n = referenceTitleNumber(node);
-    if (n) bind(id, "image", REFERENCE_PARAMS[n - 1]);
+    if (n) bind(id, "image", REFERENCE_PARAMS[n - 1], true);
   }
 
   // Input image and mask.
