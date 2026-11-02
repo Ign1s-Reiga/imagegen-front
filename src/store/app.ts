@@ -166,11 +166,14 @@ interface AppState {
    * backend without per-model options). A call
    * for a model already being read shares that read. Resolves true once the
    * model's options are known, false when the read failed and may succeed
-   * later (nothing is kept, so a later call reads again). A failure that would
-   * not, such as an unknown model, resolves true, and that model is not asked
-   * about again for ten minutes; a rejected key or no credit, for a minute.
-   * Saving the connection forgets both. A read from before the connection was
-   * saved or deleted is not kept.
+   * if asked again soon, such as a timeout (nothing is kept, so a later call
+   * reads again, and the panel retries). A failure that asking again soon
+   * would not fix resolves true and is remembered: an unknown model for ten
+   * minutes, a rejected key or no credit for a minute and for every model of
+   * the connection. Within that time a call resolves true without reading;
+   * nothing reads again when it runs out, only the next call (a change of
+   * model or connection, say). Saving the connection forgets both. A read
+   * from before the connection was saved or deleted is not kept.
    */
   loadModelOptions(connectionId: string, model: string): Promise<boolean>;
   loadCredit(connectionId: string, options?: { force?: boolean }): Promise<void>;
@@ -296,7 +299,8 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
  * minutes. One about the account (a rejected key, no credit or no permission:
  * 401, 402, 403) is kept for every model of the connection, since any other
  * would fail the same way, but only for a minute, since the user may fix it
- * outside the app (more credit, say).
+ * outside the app (more credit, say). Remembered means not read again on a
+ * call within that time; nothing reads it again by itself when it runs out.
  */
 function missFor(err: unknown): { ttl: number; account: boolean } | undefined {
   if (!(err instanceof HttpError)) return undefined;
