@@ -435,9 +435,13 @@ export function workflowReferenceSlots(workflow: SavedWorkflow): { number: numbe
  * attached image needs an input to go to. A gap in the numbering (Reference 1
  * and 3 but not 2) fails both whatever is attached, so it is reported first,
  * as something to fix in the workflow rather than in the attachments.
+ * `slots` can be passed in when the caller already has them.
  */
-export function workflowReferenceProblem(workflow: SavedWorkflow, count: number): string | null {
-  const slots = workflowReferenceSlots(workflow);
+export function workflowReferenceProblem(
+  workflow: SavedWorkflow,
+  count: number,
+  slots = workflowReferenceSlots(workflow),
+): string | null {
   const gaps = slots.filter((s) => !s.titles.length).map((s) => s.number);
   if (gaps.length) {
     // Every missing number is needed, so they are joined with "and".
