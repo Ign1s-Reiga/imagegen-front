@@ -188,7 +188,11 @@ export function ParamsPanel() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const attempt = async (n: number) => {
-      const known = await loadModelOptions(connectionId, optionModel);
+      // A rejection is a bug, not a failed read, so it is logged and not retried.
+      const known = await loadModelOptions(connectionId, optionModel).catch((err: unknown) => {
+        console.warn("Could not look up the model's options", err);
+        return true;
+      });
       if (known || cancelled || !knownModel || n >= MODEL_OPTIONS_RETRY_MS.length) return;
       timer = setTimeout(() => void attempt(n + 1), MODEL_OPTIONS_RETRY_MS[n]);
     };
