@@ -148,8 +148,13 @@ export const runpod: ProviderDefinition = {
       // Named by content, as for ComfyUI, so a file a previous job left on the
       // worker under the same name is this same image. The worker writes them
       // under exactly these names, so nothing comes back to wait for.
-      refs.references = await Promise.all(params.references.map(referenceUploadName));
-      params.references.forEach((image, i) => images.push({ name: refs.references![i], image: bytesToBase64(image.bytes) }));
+      const names = await Promise.all(params.references.map(referenceUploadName));
+      refs.references = names;
+      // The same image attached twice goes into the job once, as the payload
+      // has a size limit and both attachments load the one file.
+      params.references.forEach((image, i) => {
+        if (names.indexOf(names[i]) === i) images.push({ name: names[i], image: bytesToBase64(image.bytes) });
+      });
     }
     const workflow = params.workflow
       ? applyWorkflow(params.workflow, params, refs)
