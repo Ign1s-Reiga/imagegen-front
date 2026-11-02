@@ -83,8 +83,12 @@ export function Dialog({
   const ref = useRef<HTMLDivElement>(null);
   useModal();
   useRestoreFocus();
+  // Focus moves in once, on open: a caller passing a new `onClose` each
+  // render would otherwise pull focus back to the first control as it types.
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+  }, []);
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
