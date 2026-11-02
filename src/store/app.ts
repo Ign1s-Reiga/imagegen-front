@@ -414,11 +414,17 @@ export const useApp = create<AppState>()((set, get) => {
       const recent = await listGenerations({ limit: 40 })
         .then((page) => page.generations)
         .catch(() => []);
-      // Workflows saved before 0.2.1 have their reference loaders mapped as
+      // Workflows saved before 0.2.2 have their reference loaders mapped as
       // importing them now would, once: the result is saved with its version,
       // so a mapping changed in the editor afterwards is not undone next start.
+      // Saved workflows do not say which version made them, so one edited on
+      // purpose in 0.2.1 is upgraded too; any whose mappings change are named,
+      // so the user can check them.
       const workflows = settings.workflows.map(upgradeReferenceBindings);
       if (workflows.some((w, i) => w !== settings.workflows[i])) void saveSetting("workflows", workflows);
+      const remapped = workflows
+        .filter((w, i) => JSON.stringify(w.bindings) !== JSON.stringify(settings.workflows[i].bindings))
+        .map((w) => w.name);
       set({
         ready: true,
         connections: settings.connections,
@@ -426,6 +432,11 @@ export const useApp = create<AppState>()((set, get) => {
         forms: settings.forms,
         form: formFor(active, settings.forms, base),
         workflows,
+        ...(remapped.length
+          ? {
+              notice: `Reference inputs were updated in ${remapped.join(", ")}. Check them in the workflow inputs if you had changed them.`,
+            }
+          : {}),
         assistant: settings.assistant,
         recent,
         selection: recent[0] ? { generationId: recent[0].id, imageIndex: 0 } : null,
