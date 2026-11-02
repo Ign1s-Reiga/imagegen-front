@@ -409,8 +409,9 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
 export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow {
   const version = workflow.bindingsVersion ?? 0;
   if (version >= BINDINGS_VERSION) return workflow;
-  const wired = (b: WorkflowBinding) =>
-    referenceNumber(b.target) !== null && !isPrimitive(workflow.graph[b.nodeId]?.inputs[b.input]);
+  // Only a link: a binding to a node or input no longer in the graph is not
+  // wired, and is left for the editor and the run checks as any other is.
+  const wired = (b: WorkflowBinding) => referenceNumber(b.target) !== null && isLink(workflow.graph[b.nodeId]?.inputs[b.input]);
   let bindings = workflow.bindings.filter((b) => !wired(b));
   if (version < 1) bindings = mapReferenceLoaders(workflow.graph, bindings);
   return { ...workflow, bindings, bindingsVersion: BINDINGS_VERSION };
