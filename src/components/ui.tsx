@@ -78,13 +78,19 @@ export function Dialog({
   onClose,
   className,
   initialFocus,
+  closeOnBackdrop = true,
   children,
 }: {
   label: string;
   onClose: () => void;
   className?: string;
-  /** The control to focus on open, when it is not the first one. */
-  initialFocus?: RefObject<HTMLElement | null>;
+  /**
+   * The control to focus on open, when it is not the first one, or "panel"
+   * for the panel itself (a form whose first field should not take keys yet).
+   */
+  initialFocus?: RefObject<HTMLElement | null> | "panel";
+  /** False where a stray press outside would throw away edits. */
+  closeOnBackdrop?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -93,7 +99,8 @@ export function Dialog({
   // Focus moves in once, on open: a caller passing a new `onClose` each
   // render would otherwise pull focus back to the first control as it types.
   useEffect(() => {
-    (initialFocus?.current ?? ref.current?.querySelector<HTMLElement>("input, select, textarea, button"))?.focus();
+    if (initialFocus === "panel") ref.current?.focus();
+    else (initialFocus?.current ?? ref.current?.querySelector<HTMLElement>("input, select, textarea, button"))?.focus();
   }, [initialFocus]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -105,13 +112,17 @@ export function Dialog({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="fixed inset-0 z-40 grid place-items-center bg-black/55 p-6"
+      onPointerDown={(e) => closeOnBackdrop && e.target === e.currentTarget && onClose()}
+    >
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className={cx("rounded-[6px] bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.5)]", className)}
+        tabIndex={initialFocus === "panel" ? -1 : undefined}
+        className={cx("rounded-[6px] bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.5)] outline-none", className)}
       >
         {children}
       </div>
