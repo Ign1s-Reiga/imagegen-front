@@ -1,4 +1,6 @@
-import type { Capabilities, GenerateParams } from "./types";
+import { extForMime } from "../lib/bytes.ts";
+
+import type { Capabilities, GenerateParams, InputImage } from "./types";
 
 export interface ComfyNode {
   class_type: string;
@@ -14,6 +16,8 @@ export const SAVE_NODE_ID = "9";
 export interface UploadedRefs {
   initImage?: string;
   mask?: string;
+  /** The attached reference images, in order: the first goes to Reference 1. */
+  references?: string[];
 }
 
 /**
@@ -123,7 +127,18 @@ export type WorkflowParam =
   | "count"
   | "model"
   | "initImage"
-  | "mask";
+  | "mask"
+  | ReferenceParam;
+
+/** Reference inputs an imported workflow can map, numbered like the prompt's attachments. */
+export const REFERENCE_PARAMS = ["reference1", "reference2", "reference3", "reference4"] as const;
+export type ReferenceParam = (typeof REFERENCE_PARAMS)[number];
+
+/** 1 for "reference1", and so on; null for any other target. */
+export function referenceNumber(target: string): number | null {
+  const index = (REFERENCE_PARAMS as readonly string[]).indexOf(target);
+  return index < 0 ? null : index + 1;
+}
 
 export const WORKFLOW_PARAMS: { value: WorkflowParam; label: string; kind: "string" | "number" }[] = [
   { value: "prompt", label: "Prompt", kind: "string" },
@@ -131,6 +146,7 @@ export const WORKFLOW_PARAMS: { value: WorkflowParam; label: string; kind: "stri
   { value: "model", label: "Model", kind: "string" },
   { value: "initImage", label: "Input image", kind: "string" },
   { value: "mask", label: "Mask", kind: "string" },
+  ...REFERENCE_PARAMS.map((value, i) => ({ value, label: `Reference ${i + 1}`, kind: "string" as const })),
   { value: "sampler", label: "Sampler", kind: "string" },
   { value: "scheduler", label: "Scheduler", kind: "string" },
   { value: "seed", label: "Seed", kind: "number" },
@@ -209,20 +225,43 @@ export function parseWorkflowJson(text: string): ComfyWorkflow {
   return graph;
 }
 
-/** Follows a conditioning link upstream to the node holding the text. */
-function findTextSource(graph: ComfyWorkflow, link: unknown, depth = 0): { nodeId: string; inputs: string[] } | null {
+const TEXT_INPUT = /^(text|text_g|text_l|prompt|positive_prompt)$/;
+const NEGATIVE_TEXT_INPUT = /^(negative_prompt|negative_text)$/;
+
+/**
+ * Follows a conditioning link upstream to the node holding the text. An
+ * encoder that takes both prompts and gives both conditionings (such as
+ * MOSSImageEditTextEncode) feeds each sampler branch from its own input: the
+ * negative branch from `negative_prompt`, the positive one from `prompt`.
+ */
+function findTextSource(
+  graph: ComfyWorkflow,
+  link: unknown,
+  branch: "positive" | "negative",
+  depth = 0,
+): { nodeId: string; inputs: string[] } | null {
   if (!isLink(link) || depth > 6) return null;
   const node = graph[link[0]];
   if (!node) return null;
-  const textInputs = Object.keys(node.inputs).filter(
-    (k) => typeof node.inputs[k] === "string" && /^(text|text_g|text_l|prompt)$/.test(k),
-  );
-  if (textInputs.length) return { nodeId: link[0], inputs: textInputs };
+  const strings = Object.keys(node.inputs).filter((k) => typeof node.inputs[k] === "string");
+  const negatives = strings.filter((k) => NEGATIVE_TEXT_INPUT.test(k));
+  const texts = strings.filter((k) => TEXT_INPUT.test(k));
+  const inputs = branch === "negative" && negatives.length ? negatives : texts;
+  if (inputs.length) return { nodeId: link[0], inputs };
   for (const key of ["conditioning", "conditioning_1", "positive", "cond"]) {
-    const found = findTextSource(graph, node.inputs[key], depth + 1);
+    const found = findTextSource(graph, node.inputs[key], branch, depth + 1);
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * The reference number of a LoadImage node titled "Reference 1",
+ * "Reference 2 — Person" and so on (1 to 4); null for any other title.
+ */
+export function referenceTitleNumber(node: ComfyNode): number | null {
+  const match = /^\s*reference\s*([1-4])(?!\d)/i.exec(node._meta?.title ?? "");
+  return match ? Number(match[1]) : null;
 }
 
 /** Guesses which inputs the standard panel controls should drive. */
@@ -251,12 +290,12 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
     bind(id, "sampler_name", "sampler");
     bind(id, "scheduler", "scheduler");
     bind(id, "denoise", "strength");
-    const positive = findTextSource(graph, node.inputs.positive);
+    // A negative branch that leads back to the prompt's own input is skipped,
+    // since an input is only ever bound once.
+    const positive = findTextSource(graph, node.inputs.positive, "positive");
     positive?.inputs.forEach((input) => bind(positive.nodeId, input, "prompt", true));
-    const negative = findTextSource(graph, node.inputs.negative);
-    if (negative && negative.nodeId !== positive?.nodeId) {
-      negative.inputs.forEach((input) => bind(negative.nodeId, input, "negativePrompt", true));
-    }
+    const negative = findTextSource(graph, node.inputs.negative, "negative");
+    negative?.inputs.forEach((input) => bind(negative.nodeId, input, "negativePrompt", true));
   }
   // Flux-style custom sampling pipeline.
   for (const [id] of byClass(/^RandomNoise$/)) bind(id, "noise_seed", "seed");
@@ -269,12 +308,10 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
   for (const [id] of byClass(/^CFGGuider$/)) bind(id, "cfg", "cfg");
   for (const [id] of byClass(/^FluxGuidance$/)) bind(id, "guidance", "cfg");
   for (const [, node] of byClass(/^(BasicGuider|CFGGuider)$/)) {
-    const positive = findTextSource(graph, node.inputs.conditioning ?? node.inputs.positive);
+    const positive = findTextSource(graph, node.inputs.conditioning ?? node.inputs.positive, "positive");
     positive?.inputs.forEach((input) => bind(positive.nodeId, input, "prompt", true));
-    const negative = findTextSource(graph, node.inputs.negative);
-    if (negative && negative.nodeId !== positive?.nodeId) {
-      negative.inputs.forEach((input) => bind(negative.nodeId, input, "negativePrompt", true));
-    }
+    const negative = findTextSource(graph, node.inputs.negative, "negative");
+    negative?.inputs.forEach((input) => bind(negative.nodeId, input, "negativePrompt", true));
   }
   // Last resort: the first text encoder is the prompt.
   if (!taken.has("prompt")) {
@@ -297,12 +334,81 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
   }
   for (const [id] of byClass(/^(UNETLoader|UnetLoaderGGUF)$/)) bind(id, "unet_name", "model");
 
+  // Reference images, by the number in the node's title, so the order holds
+  // whatever the node ids. Only titled nodes: any other LoadImage may be the
+  // input image or a fixed asset of the workflow.
+  const loaders = byClass(/^LoadImage$/);
+  for (const [id, node] of loaders) {
+    const n = referenceTitleNumber(node);
+    if (n) bind(id, "image", REFERENCE_PARAMS[n - 1]);
+  }
+
   // Input image and mask.
   const masks = byClass(/^LoadImageMask$/);
   for (const [id] of masks) bind(id, "image", "mask");
-  for (const [id] of byClass(/^LoadImage$/)) bind(id, "image", "initImage");
+  for (const [id, node] of loaders) {
+    if (!referenceTitleNumber(node)) bind(id, "image", "initImage");
+  }
 
   return bindings;
+}
+
+/**
+ * The workflow's reference inputs, numbered 1 up to the highest one mapped,
+ * with the titles of the nodes each fills; an empty list for a number with no
+ * input (a gap, such as Reference 1 and 3 mapped but not 2).
+ */
+export function workflowReferenceSlots(workflow: SavedWorkflow): { number: number; titles: string[] }[] {
+  const slots: { number: number; titles: string[] }[] = [];
+  for (const binding of workflow.bindings) {
+    const n = referenceNumber(binding.target);
+    const node = workflow.graph[binding.nodeId];
+    if (!n || !node) continue;
+    while (slots.length < n) slots.push({ number: slots.length + 1, titles: [] });
+    slots[n - 1].titles.push(nodeTitle(node));
+  }
+  return slots;
+}
+
+/**
+ * Why `count` attached references cannot run this workflow, or null when
+ * they can: every mapped reference needs an image (the saved file name would
+ * otherwise be loaded, a placeholder or a previous run's upload), and every
+ * attached image needs an input to go to.
+ */
+export function workflowReferenceProblem(workflow: SavedWorkflow, count: number): string | null {
+  const slots = workflowReferenceSlots(workflow);
+  const missing = slots.filter((s) => s.titles.length && s.number > count);
+  if (missing.length) {
+    const names = missing.map((s) => s.titles[0]).join(", ");
+    return `${workflow.name} needs ${slots.length} reference image${slots.length === 1 ? "" : "s"}. Attach ${missing.length === 1 ? "one" : "them"} for: ${names}.`;
+  }
+  const unmapped = Array.from({ length: count }, (_, i) => i + 1).filter((n) => !slots[n - 1]?.titles.length);
+  if (unmapped.length) {
+    const list = unmapped.join(", ");
+    return `${workflow.name} has no input for reference image${unmapped.length === 1 ? "" : "s"} ${list}. Remove ${unmapped.length === 1 ? "it" : "them"}, or map a LoadImage node to Reference ${unmapped[0]} in the workflow inputs.`;
+  }
+  return null;
+}
+
+/** A unique name for a reference upload, so two images called "image.png" never overwrite each other. */
+export function referenceUploadName(index: number, image: InputImage, id: string) {
+  return `imagegen-ref${index + 1}-${id}.${extForMime(image.mime)}`;
+}
+
+/**
+ * Uploads the references in order under unique names, and returns the names
+ * the server reports back (which a workflow must load, as the server may
+ * rename or file them in a subfolder).
+ */
+export async function uploadReferences(
+  references: InputImage[],
+  upload: (image: InputImage, name: string) => Promise<string>,
+  newId: () => string = () => crypto.randomUUID(),
+): Promise<string[]> {
+  const names: string[] = [];
+  for (const [i, image] of references.entries()) names.push(await upload(image, referenceUploadName(i, image, newId())));
+  return names;
 }
 
 /** What the parameter panel can offer for an imported workflow. */
@@ -324,6 +430,7 @@ export function workflowCapabilities(workflow: SavedWorkflow, base: Capabilities
     size: has("width") && has("height"),
     model: has("model"),
     maxCount: has("count") ? base.maxCount : 1,
+    references: workflowReferenceSlots(workflow).length,
   };
 }
 
@@ -336,7 +443,11 @@ function coerce(raw: string, original: unknown): Primitive {
   return raw;
 }
 
-/** A copy of the workflow's graph with the panel's values written in. */
+/**
+ * A copy of the workflow's graph with the panel's values written in; the saved
+ * graph is never changed. Throws when a mapped reference has no uploaded
+ * image, rather than loading whatever file name the graph was saved with.
+ */
 export function applyWorkflow(
   workflow: SavedWorkflow,
   params: GenerateParams,
@@ -392,6 +503,16 @@ export function applyWorkflow(
       case "mask":
         value = refs.mask ?? current;
         break;
+      case "reference1":
+      case "reference2":
+      case "reference3":
+      case "reference4": {
+        const n = referenceNumber(binding.target)!;
+        const name = refs.references?.[n - 1];
+        if (!name) throw new Error(`No image was uploaded for Reference ${n} (${nodeTitle(node)}).`);
+        value = name;
+        break;
+      }
       case "field": {
         const raw = params.options[fieldKey(binding)];
         value = raw === undefined ? current : coerce(raw, current);

@@ -8,7 +8,9 @@ import {
   applyWorkflow,
   buildComfyWorkflow,
   comboChoices,
+  uploadReferences,
   workflowCapabilities,
+  workflowReferenceProblem,
   type ComfyWorkflow,
   type UploadedRefs,
 } from "./comfy-workflow";
@@ -51,11 +53,21 @@ interface HistoryEntry {
   status?: { status_str?: string; completed?: boolean; messages?: [string, Record<string, unknown>][] };
 }
 
-async function uploadImage(config: ConnectionConfig, image: InputImage, signal: AbortSignal) {
+/**
+ * Uploads to Comfy's input folder and returns the name to load it by, as the
+ * server reports it: with its subfolder, and renamed if a file of that name
+ * was there and `overwrite` is off.
+ */
+async function uploadImage(
+  config: ConnectionConfig,
+  image: InputImage,
+  signal: AbortSignal,
+  { name = image.name, overwrite = true }: { name?: string; overwrite?: boolean } = {},
+) {
   const form = new FormData();
-  form.append("image", new Blob([image.bytes], { type: image.mime }), image.name);
+  form.append("image", new Blob([image.bytes], { type: image.mime }), name);
   form.append("type", "input");
-  form.append("overwrite", "true");
+  form.append("overwrite", String(overwrite));
   const res = await httpJson<{ name: string; subfolder?: string }>(
     `${baseUrl(config)}/upload/image`,
     request(config, { method: "POST", body: form, signal }),
@@ -251,6 +263,9 @@ async function prepareWorkflow(
   if (!params.workflow && !checkpoint) {
     throw new Error("Choose a checkpoint in the model field or in the connection settings.");
   }
+  // Checked before anything is uploaded.
+  const problem = params.workflow ? workflowReferenceProblem(params.workflow, params.references.length) : null;
+  if (problem) throw new Error(problem);
   const refs: UploadedRefs = {};
   if (params.mode === "img2img") {
     if (!params.initImage) throw new Error("Add an input image for image to image.");
@@ -259,6 +274,15 @@ async function prepareWorkflow(
     if (params.mask) {
       refs.mask = await uploadImage(config, { ...params.mask, name: `mask-${params.initImage.name}` }, ctx.signal);
     }
+  }
+  if (params.workflow && params.references.length) {
+    const count = params.references.length;
+    ctx.onProgress({ stage: "uploading", message: `Uploading ${count} reference image${count === 1 ? "" : "s"}` });
+    // Unique names, and never overwriting, so neither another reference nor a
+    // previous run's upload can stand in for this one.
+    refs.references = await uploadReferences(params.references, (image, name) =>
+      uploadImage(config, image, ctx.signal, { name, overwrite: false }),
+    );
   }
   if (params.workflow) {
     return { workflow: applyWorkflow(params.workflow, params, refs), model: params.model || undefined };
