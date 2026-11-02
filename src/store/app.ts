@@ -303,13 +303,14 @@ const isModelFailure = (err: unknown) => err instanceof HttpError && [400, 404, 
 const modelOptionReads = new Map<string, { connection: Connection; read: Promise<boolean> }>();
 
 /**
- * Models whose read failed in a way asking again would not fix, with when to
- * forget that: not asked about again for a while (each pause on a typo would
- * otherwise read it again), but not kept for good either, so a model the
- * backend adds later is found. Kept out of the store, so typos do not pile up
- * in its state.
+ * Models whose read failed in a way asking again would not fix, with the
+ * connection it failed on and when to forget that: not asked about again for a
+ * while (each pause on a typo would otherwise read it again), but not kept for
+ * good either, so a model the backend adds later is found. Saving the
+ * connection (a fixed base URL, say) replaces its object, so the miss no
+ * longer applies. Kept out of the store, so typos do not pile up in its state.
  */
-const modelOptionMisses = new Map<string, number>();
+const modelOptionMisses = new Map<string, { connection: Connection; until: number }>();
 const MODEL_MISS_TTL_MS = 10 * 60_000;
 
 export const useApp = create<AppState>()((set, get) => {
@@ -532,9 +533,9 @@ export const useApp = create<AppState>()((set, get) => {
       if (!def.modelOptionKeys) return true;
       if (get().choices[connectionId]?.modelOptions?.[model]) return true;
       const key = JSON.stringify([connectionId, model]);
-      const missUntil = modelOptionMisses.get(key);
-      if (missUntil !== undefined) {
-        if (Date.now() < missUntil) return true;
+      const miss = modelOptionMisses.get(key);
+      if (miss) {
+        if (miss.connection === connection && Date.now() < miss.until) return true;
         modelOptionMisses.delete(key);
       }
       const inFlight = modelOptionReads.get(key);
@@ -555,7 +556,7 @@ export const useApp = create<AppState>()((set, get) => {
           // Not asked about again for a while when asking again would not help,
           // so the panel neither retries it nor reads it on the next pause.
           if (!isModelFailure(err) || !current()) return false;
-          modelOptionMisses.set(key, Date.now() + MODEL_MISS_TTL_MS);
+          modelOptionMisses.set(key, { connection, until: Date.now() + MODEL_MISS_TTL_MS });
           return true;
         } finally {
           // Unless a read for a newer connection has taken its place.
