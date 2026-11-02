@@ -10,7 +10,6 @@ import {
   comboChoices,
   uploadReferences,
   workflowCapabilities,
-  workflowReferenceProblem,
   type ComfyWorkflow,
   type UploadedRefs,
 } from "./comfy-workflow";
@@ -263,9 +262,6 @@ async function prepareWorkflow(
   if (!params.workflow && !checkpoint) {
     throw new Error("Choose a checkpoint in the model field or in the connection settings.");
   }
-  // Checked before anything is uploaded.
-  const problem = params.workflow ? workflowReferenceProblem(params.workflow, params.references.length) : null;
-  if (problem) throw new Error(problem);
   const refs: UploadedRefs = {};
   if (params.mode === "img2img") {
     if (!params.initImage) throw new Error("Add an input image for image to image.");

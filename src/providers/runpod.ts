@@ -4,9 +4,8 @@ import { HttpError, cancelOnAbort, http, httpImage, httpJson, sleep, trimSlash, 
 import {
   applyWorkflow,
   buildComfyWorkflow,
-  referenceUploadName,
+  uploadReferences,
   workflowCapabilities,
-  workflowReferenceProblem,
   type UploadedRefs,
 } from "./comfy-workflow";
 import { parseRunpodMyself } from "./credit";
@@ -132,8 +131,6 @@ export const runpod: ProviderDefinition = {
   async generate(params, config, ctx) {
     const checkpoint = params.model || config.checkpoint;
     if (!params.workflow && !checkpoint) throw new Error("Set a checkpoint file name for this endpoint.");
-    const problem = params.workflow ? workflowReferenceProblem(params.workflow, params.references.length) : null;
-    if (problem) throw new Error(problem);
 
     // worker-comfyui writes these into ComfyUI's input folder before running.
     const images: { name: string; image: string }[] = [];
@@ -148,10 +145,13 @@ export const runpod: ProviderDefinition = {
       }
     }
     if (params.workflow && params.references.length) {
-      // Named by content, so a file a previous job left on the worker under
-      // the same name is this same image, and repeat runs reuse it.
-      refs.references = await Promise.all(params.references.map(referenceUploadName));
-      params.references.forEach((image, i) => images.push({ name: refs.references![i], image: bytesToBase64(image.bytes) }));
+      // Named by content, as for ComfyUI, so a file a previous job left on the
+      // worker under the same name is this same image. The worker writes them
+      // under exactly these names.
+      refs.references = await uploadReferences(params.references, async (image, name) => {
+        images.push({ name, image: bytesToBase64(image.bytes) });
+        return name;
+      });
     }
     const workflow = params.workflow
       ? applyWorkflow(params.workflow, params, refs)

@@ -25,6 +25,7 @@ import {
   detectBindings,
   parseWorkflowJson,
   unsupportedReferenceTitles,
+  workflowReferenceProblem,
   workflowDefaults,
   type SavedWorkflow,
 } from "@/providers/comfy-workflow";
@@ -716,6 +717,10 @@ export const useApp = create<AppState>()((set, get) => {
             : `${def.label} cannot use reference images. Remove them, or switch to OpenAI, OpenRouter, fal.ai or Replicate.`,
         );
       }
+      // Every mapped reference has an image and every image an input, checked
+      // here for every backend that runs workflows, before anything is uploaded.
+      const referenceProblem = workflow ? workflowReferenceProblem(workflow, params.references.length) : null;
+      if (referenceProblem) throw new Error(referenceProblem);
 
       const config = await resolveConfig(connection);
       const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
