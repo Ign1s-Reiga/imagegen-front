@@ -148,8 +148,9 @@ export const runpod: ProviderDefinition = {
       }
     }
     if (params.workflow && params.references.length) {
-      // Unique names, so a file a previous job left on the worker is never loaded instead.
-      refs.references = params.references.map((image, i) => referenceUploadName(i, image, crypto.randomUUID()));
+      // Named by content, so a file a previous job left on the worker under
+      // the same name is this same image, and repeat runs reuse it.
+      refs.references = await Promise.all(params.references.map(referenceUploadName));
       params.references.forEach((image, i) => images.push({ name: refs.references![i], image: bytesToBase64(image.bytes) }));
     }
     const workflow = params.workflow

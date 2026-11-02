@@ -416,23 +416,30 @@ export function workflowReferenceProblem(workflow: SavedWorkflow, count: number)
   return null;
 }
 
-/** A unique name for a reference upload, so two images called "image.png" never overwrite each other. */
-export function referenceUploadName(index: number, image: InputImage, id: string) {
-  return `imagegen-ref${index + 1}-${id}.${extForMime(image.mime)}`;
+/**
+ * The name a reference is uploaded under, from a hash of its bytes. Two
+ * different images never share a name, whatever they were called, so neither
+ * can stand in for the other or for a previous run's upload; the same image
+ * always gets the same name, so sending it again reuses one file rather than
+ * leaving a new copy on the server each run (or after a failed upload).
+ */
+export async function referenceUploadName(image: InputImage): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", image.bytes));
+  const hex = Array.from(digest.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `imagegen-ref-${hex}.${extForMime(image.mime)}`;
 }
 
 /**
- * Uploads the references in order under unique names, and returns the names
- * the server reports back (which a workflow must load, as the server may
- * rename or file them in a subfolder).
+ * Uploads the references in order under their content names, and returns the
+ * names the server reports back (which a workflow must load, as the server
+ * may rename or file them in a subfolder).
  */
 export async function uploadReferences(
   references: InputImage[],
   upload: (image: InputImage, name: string) => Promise<string>,
-  newId: () => string = () => crypto.randomUUID(),
 ): Promise<string[]> {
   const names: string[] = [];
-  for (const [i, image] of references.entries()) names.push(await upload(image, referenceUploadName(i, image, newId())));
+  for (const image of references) names.push(await upload(image, await referenceUploadName(image)));
   return names;
 }
 
