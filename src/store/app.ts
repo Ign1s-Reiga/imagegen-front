@@ -421,17 +421,16 @@ export const useApp = create<AppState>()((set, get) => {
       // version, so one edited on purpose in 0.2.1 is upgraded too; any whose
       // mappings change are named, so the user can check them.
       const workflows = settings.workflows.map(upgradeReferenceBindings);
-      // Only an upgraded workflow is a new object, so the rest are not compared.
-      const remapped = workflows
-        .filter((w, i) => {
-          const before = settings.workflows[i];
-          return w !== before && JSON.stringify(w.bindings) !== JSON.stringify(before.bindings);
-        })
-        .map((w) => w.name);
+      // Only an upgraded workflow comes back as a new object: those are saved,
+      // and the ones among them whose mappings changed are named.
+      const upgraded = workflows.flatMap((w, i) => (w === settings.workflows[i] ? [] : [{ w, before: settings.workflows[i] }]));
+      const remapped = upgraded
+        .filter(({ w, before }) => JSON.stringify(w.bindings) !== JSON.stringify(before.bindings))
+        .map(({ w }) => w.name);
       const remappedNotice = remapped.length
         ? `Reference inputs were updated in ${remapped.join(", ")}: image loaders titled Reference 1 to 4 now fill their reference, and none wired from another node is replaced. Check the workflow inputs if you had mapped them yourself.`
         : null;
-      if (workflows.some((w, i) => w !== settings.workflows[i])) {
+      if (upgraded.length) {
         // Not saved means it runs again next start; say so rather than leave
         // an unhandled rejection in the console, keeping the workflows named.
         saveSetting("workflows", workflows).catch((err: unknown) =>
