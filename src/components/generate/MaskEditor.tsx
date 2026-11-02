@@ -7,7 +7,7 @@ import { maskFromAlpha, maskToAlpha } from "@/lib/mask";
 import { useImageUrl } from "@/lib/use-image-url";
 import type { InputImage } from "@/providers/types";
 
-import { Button, IconButton, Segmented, useRestoreFocus } from "../ui";
+import { Button, IconButton, Segmented, useModal, useRestoreFocus } from "../ui";
 
 /** Paint colour; the canvas is shown translucent over the image. */
 const PAINT: [number, number, number] = [240, 165, 60];
@@ -82,6 +82,7 @@ export function MaskEditor({
     };
   }, [mask, mounted, image.width, image.height]);
 
+  useModal();
   useRestoreFocus();
   useEffect(() => dialogRef.current?.focus(), []);
 
