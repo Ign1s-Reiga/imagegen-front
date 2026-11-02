@@ -38,6 +38,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && pathname === "/") {
+        // A dialog (the full error, the workflow or mask editor) covers the
+        // form, so the shortcut would start a run the user cannot see begin.
+        if (document.querySelector('[aria-modal="true"]')) return;
         e.preventDefault();
         void useApp.getState().generate();
       }
