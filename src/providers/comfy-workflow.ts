@@ -12,8 +12,12 @@ export type ComfyWorkflow = Record<string, ComfyNode>;
 
 export const SAVE_NODE_ID = "9";
 
-/** The current `SavedWorkflow.bindingsVersion`: reference loaders mapped as in 0.2.1. */
-export const BINDINGS_VERSION = 1;
+/**
+ * The current `SavedWorkflow.bindingsVersion`: 1 has reference loaders mapped
+ * as 0.2.2 did, 2 (0.2.3 on) also has none mapped whose image is wired from
+ * another node.
+ */
+export const BINDINGS_VERSION = 2;
 
 /** File names a generation uploaded to Comfy's input folder. */
 export interface UploadedRefs {
@@ -178,7 +182,7 @@ export interface SavedWorkflow {
   createdAt: number;
   /**
    * Which version of input detection the bindings are from: absent for one
-   * saved before 0.2.1, then `BINDINGS_VERSION`. Upgrades run once, so a
+   * saved before 0.2.2, then a `BINDINGS_VERSION`. Upgrades run once, so a
    * mapping changed in the editor afterwards stays.
    */
   bindingsVersion?: number;
@@ -390,20 +394,34 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
  * titled Reference 1 to 4 that maps to nothing is given its reference. A
  * mapping to anything else is left alone.
  *
- * Runs once: a workflow already at `BINDINGS_VERSION` is returned as it is,
- * so a mapping the user made in the editor since is never undone. Any other
- * comes back as a new object at that version, for the caller to save.
+ * Version 1 (0.2.2) also mapped loaders whose image is wired from another
+ * node, which a run would then replace with the upload; a workflow below
+ * version 2 has any reference mapped to a wired input dropped. The editor
+ * only offers file names, so such a mapping was never the user's choice.
+ *
+ * Runs once per version: a workflow already at `BINDINGS_VERSION` is
+ * returned as it is, so a mapping the user made in the editor since is never
+ * undone. Any other comes back as a new object at that version, for the
+ * caller to save.
  */
 export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow {
-  if ((workflow.bindingsVersion ?? 0) >= BINDINGS_VERSION) return workflow;
+  const version = workflow.bindingsVersion ?? 0;
+  if (version >= BINDINGS_VERSION) return workflow;
+  const wired = (b: WorkflowBinding) =>
+    referenceNumber(b.target) !== null && !isPrimitive(workflow.graph[b.nodeId]?.inputs[b.input]);
+  let bindings = workflow.bindings.filter((b) => !wired(b));
+  if (version < 1) bindings = mapReferenceLoaders(workflow.graph, bindings);
+  return { ...workflow, bindings, bindingsVersion: BINDINGS_VERSION };
+}
+
+/** Version 1's upgrade: reference-titled loaders taken off the input image and mapped. */
+function mapReferenceLoaders(graph: ComfyWorkflow, saved: WorkflowBinding[]): WorkflowBinding[] {
   const isReferenceLoader = (nodeId: string) => {
-    const node = workflow.graph[nodeId];
+    const node = graph[nodeId];
     return node?.class_type === "LoadImage" && hasReferenceTitle(node);
   };
-  const bindings = workflow.bindings.filter(
-    (b) => !(b.target === "initImage" && b.input === "image" && isReferenceLoader(b.nodeId)),
-  );
-  for (const [nodeId, node] of Object.entries(workflow.graph)) {
+  const bindings = saved.filter((b) => !(b.target === "initImage" && b.input === "image" && isReferenceLoader(b.nodeId)));
+  for (const [nodeId, node] of Object.entries(graph)) {
     const n = node.class_type === "LoadImage" ? referenceTitleNumber(node) : null;
     // As on import, only a file name can be replaced; an image wired in from
     // another node is left connected.
@@ -411,7 +429,7 @@ export function upgradeReferenceBindings(workflow: SavedWorkflow): SavedWorkflow
     if (bindings.some((b) => b.nodeId === nodeId && b.input === "image")) continue;
     bindings.push({ nodeId, input: "image", target: REFERENCE_PARAMS[n - 1] });
   }
-  return { ...workflow, bindings, bindingsVersion: BINDINGS_VERSION };
+  return bindings;
 }
 
 /**
