@@ -2,7 +2,7 @@
 
 import { ArrowLeftRight, Dices, FileUp, Paintbrush, RefreshCw, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   boundInput,
@@ -166,6 +166,17 @@ export function ParamsPanel() {
   const [paintingMask, setPaintingMask] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<SavedWorkflow | null>(null);
   const workflowFileRef = useRef<HTMLInputElement>(null);
+  // Worked out when the workflow or the attachments change, not on every
+  // keystroke in the prompt.
+  const referenceCount = form.references.length;
+  const referenceSlots = useMemo(
+    () => (workflow ? workflowReferenceSlots(workflow).map((s) => s.titles[0] ?? "") : undefined),
+    [workflow],
+  );
+  const referenceProblem = useMemo(
+    () => (workflow ? workflowReferenceProblem(workflow, referenceCount) : null),
+    [workflow, referenceCount],
+  );
 
   const promptId = useFieldId("prompt");
   const negativeId = useFieldId("negative");
@@ -329,8 +340,8 @@ export function ParamsPanel() {
               references={form.references}
               limit={caps.references}
               backend={def.label}
-              slots={workflow ? workflowReferenceSlots(workflow).map((s) => s.titles[0] ?? "") : undefined}
-              problem={workflow ? workflowReferenceProblem(workflow, form.references.length) : null}
+              slots={referenceSlots}
+              problem={referenceProblem}
             />
           </Field>
         )}
