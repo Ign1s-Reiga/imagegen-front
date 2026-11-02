@@ -1,6 +1,7 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import { sniffImageMime, type Bytes } from "./bytes";
+import { describeHttpError } from "./http-error";
 
 export class HttpError extends Error {
   constructor(
@@ -11,33 +12,6 @@ export class HttpError extends Error {
     super(describeHttpError(status, body, url));
     this.name = "HttpError";
   }
-}
-
-function describeHttpError(status: number, body: string, url: string): string {
-  let detail = body.trim();
-  try {
-    const json = JSON.parse(body);
-    detail =
-      json?.error?.message ??
-      json?.detail?.[0]?.msg ??
-      (typeof json?.detail === "string" ? json.detail : undefined) ??
-      json?.message ??
-      json?.error ??
-      detail;
-    if (typeof detail !== "string") detail = JSON.stringify(detail);
-    // e.g. RunPod answers 401 with {"error":{}}
-    if (detail === "{}" || detail === "[]") detail = "";
-  } catch {
-    // Not JSON; keep the raw text.
-  }
-  const host = (() => {
-    try {
-      return new URL(url).host;
-    } catch {
-      return url;
-    }
-  })();
-  return `${host} returned ${status}${detail ? `: ${detail.slice(0, 400)}` : ""}`;
 }
 
 export interface HttpOptions extends RequestInit {
