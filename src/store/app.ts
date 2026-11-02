@@ -429,7 +429,7 @@ export const useApp = create<AppState>()((set, get) => {
         })
         .map((w) => w.name);
       const remappedNotice = remapped.length
-        ? `Reference inputs were updated in ${remapped.join(", ")}. Check them in the workflow inputs if you had changed them.`
+        ? `Reference inputs were updated in ${remapped.join(", ")}: image loaders titled Reference 1 to 4 now fill their reference, and none wired from another node is replaced. Check the workflow inputs if you had mapped them yourself.`
         : null;
       if (workflows.some((w, i) => w !== settings.workflows[i])) {
         // Not saved means it runs again next start; say so rather than leave
