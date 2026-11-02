@@ -278,17 +278,23 @@ async function prepareWorkflow(
     // name can only be this same image, and the name the server returns is
     // what gets loaded either way. ComfyUI builds that compare uploads keep
     // the file they have; older ones save a renamed copy ("name (1).png").
-    // A failed upload stops the others, rather than leaving them to finish
-    // writing to the server after the error is shown.
+    // One controller for the uploads, aborted by the run's cancel or by the
+    // first upload to fail, so the others stop rather than finish writing to
+    // the server after the error is shown. (A listener rather than
+    // AbortSignal.any, which older macOS and Linux webviews lack.)
     const uploads = new AbortController();
-    const signal = AbortSignal.any([ctx.signal, uploads.signal]);
+    const cancel = () => uploads.abort();
+    if (ctx.signal.aborted) cancel();
+    ctx.signal.addEventListener("abort", cancel, { once: true });
     try {
       refs.references = await uploadReferences(params.references, (image, name) =>
-        uploadImage(config, image, signal, { name, overwrite: false }),
+        uploadImage(config, image, uploads.signal, { name, overwrite: false }).catch((err: unknown) => {
+          cancel();
+          throw err;
+        }),
       );
-    } catch (err) {
-      uploads.abort();
-      throw err;
+    } finally {
+      ctx.signal.removeEventListener("abort", cancel);
     }
   }
   if (params.workflow) {
