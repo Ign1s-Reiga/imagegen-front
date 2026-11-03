@@ -102,12 +102,14 @@ export function Dialog({
   const ref = useRef<HTMLDivElement>(null);
   useModal();
   useRestoreFocus();
-  // Focus moves in once, on open: a caller passing a new `onClose` each
-  // render would otherwise pull focus back to the first control as it types.
+  // Focus moves in once, on open, with the `initialFocus` given then: a new
+  // `onClose` or `initialFocus` on a later render would otherwise pull focus
+  // back to that control as the user types elsewhere.
+  const [firstFocus] = useState(initialFocus);
   useEffect(() => {
-    if (initialFocus === "panel") ref.current?.focus();
-    else (initialFocus?.current ?? ref.current?.querySelector<HTMLElement>("input, select, textarea, button"))?.focus();
-  }, [initialFocus]);
+    if (firstFocus === "panel") ref.current?.focus();
+    else (firstFocus?.current ?? ref.current?.querySelector<HTMLElement>("input, select, textarea, button"))?.focus();
+  }, [firstFocus]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
