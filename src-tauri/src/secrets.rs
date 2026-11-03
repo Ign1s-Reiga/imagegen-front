@@ -17,13 +17,19 @@ pub fn secret_set(key: String, value: String) -> Result<()> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn secret_get(key: String) -> Result<Option<String>> {
-    match entry(&key)?.get_password() {
+/// Reads a secret for use on the Rust side (SSH keys for training hosts),
+/// so it never has to pass back through the webview.
+pub fn read(key: &str) -> Result<Option<String>> {
+    match entry(key)?.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(err) => Err(err.into()),
     }
+}
+
+#[tauri::command]
+pub fn secret_get(key: String) -> Result<Option<String>> {
+    read(&key)
 }
 
 #[tauri::command]

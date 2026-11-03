@@ -49,7 +49,7 @@
       "dangerousDisableAssetCspModification": ["style-src"],
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/images/**"]
+        "scope": ["$APPDATA/images/**", "$APPDATA/training/projects/**"]
       }
     }
   },
