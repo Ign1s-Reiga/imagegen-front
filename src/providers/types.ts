@@ -1,13 +1,13 @@
 import type { Bytes } from "@/lib/bytes";
 
 import type { ChatService } from "./chat";
-import type { SavedWorkflow } from "./comfy-workflow";
+import type { LoraChoice, SavedWorkflow } from "./comfy-workflow";
 
 /** Image backends: services that generate images. */
 export type ProviderKind = "openai" | "openrouter" | "comfyui" | "runpod" | "fal" | "replicate" | "a1111";
 
 /** Every kind of saved connection: the image backends plus chat-only services. */
-export type ConnectionKind = ProviderKind | "anthropic";
+export type ConnectionKind = ProviderKind | "anthropic" | "gpuhost";
 
 export type Mode = "txt2img" | "img2img";
 
@@ -45,6 +45,8 @@ export interface GenerateParams {
   options: Record<string, string>;
   /** Imported ComfyUI workflow to run instead of the built-in graph. */
   workflow?: SavedWorkflow | null;
+  /** A LoRA for the workflow's LoRA loader; null keeps the workflow's own. */
+  lora?: LoraChoice | null;
 }
 
 export interface GeneratedImage {
@@ -83,6 +85,8 @@ export interface ConfigField {
   label: string;
   /** `secret` values are stored in the OS keychain, never in settings. */
   type: "text" | "url" | "secret";
+  /** Edited in a text area (a pasted key). */
+  multiline?: boolean;
   placeholder?: string;
   help?: string;
   required?: boolean;
@@ -147,6 +151,8 @@ export interface ServiceDefinition {
   getCredit?: (config: ConnectionConfig, signal?: AbortSignal) => Promise<CreditInfo | null>;
   /** Chat models, for the prompt helper and the pixel assistant. */
   chat?: ChatService;
+  /** Records a host key the user approved by fingerprint (SSH connections). */
+  trustHostKey?: (config: ConnectionConfig, fingerprint: string) => Promise<void>;
 }
 
 /** An image backend. */

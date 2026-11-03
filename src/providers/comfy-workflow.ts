@@ -135,6 +135,8 @@ export type WorkflowParam =
   | "model"
   | "initImage"
   | "mask"
+  | "lora"
+  | "loraStrength"
   | ReferenceParam;
 
 /** Reference inputs an imported workflow can map, numbered like the prompt's attachments. */
@@ -163,7 +165,32 @@ export const WORKFLOW_PARAMS: { value: WorkflowParam; label: string; kind: "stri
   { value: "width", label: "Width", kind: "number" },
   { value: "height", label: "Height", kind: "number" },
   { value: "count", label: "Images (batch size)", kind: "number" },
+  { value: "lora", label: "LoRA file", kind: "string" },
+  { value: "loraStrength", label: "LoRA strength", kind: "number" },
 ];
+
+/** ComfyUI's LoRA loaders: the model-only one and the one that also patches CLIP. */
+export const LORA_LOADER = /^(LoraLoaderModelOnly|LoraLoader)$/;
+
+/** A LoRA chosen for a run, by the file name ComfyUI lists. */
+export interface LoraChoice {
+  name: string;
+  strength: number;
+}
+
+/**
+ * The loader a chosen LoRA goes into: the one mapped to "lora" in the
+ * workflow inputs, or else the graph's only LoRA loader. Null when the graph
+ * has none; "ambiguous" when it has several and none is mapped.
+ */
+export function loraLoader(workflow: SavedWorkflow): { nodeId: string; title: string } | null | "ambiguous" {
+  const mapped = workflow.bindings.find((b) => b.target === "lora" && workflow.graph[b.nodeId]);
+  if (mapped) return { nodeId: mapped.nodeId, title: nodeTitle(workflow.graph[mapped.nodeId]) };
+  const loaders = Object.entries(workflow.graph).filter(([, n]) => LORA_LOADER.test(n.class_type));
+  if (!loaders.length) return null;
+  if (loaders.length > 1) return "ambiguous";
+  return { nodeId: loaders[0][0], title: nodeTitle(loaders[0][1]) };
+}
 
 export interface WorkflowBinding {
   nodeId: string;
@@ -360,6 +387,14 @@ export function detectBindings(graph: ComfyWorkflow): WorkflowBinding[] {
     bind(id, "ckpt_name", "model");
   }
   for (const [id] of byClass(/^(UNETLoader|UnetLoaderGGUF)$/)) bind(id, "unet_name", "model");
+
+  // A single LoRA loader takes the LoRA chosen in the panel. With several,
+  // which one is meant is the user's to map in the workflow inputs.
+  const loras = byClass(LORA_LOADER);
+  if (loras.length === 1) {
+    bind(loras[0][0], "lora_name", "lora");
+    bind(loras[0][0], "strength_model", "loraStrength");
+  }
 
   // Reference images, by the number in the node's title, so the order holds
   // whatever the node ids. Only titled nodes: any other LoadImage may be the
@@ -570,6 +605,24 @@ export function applyWorkflow(
   refs: UploadedRefs = {},
 ): ComfyWorkflow {
   const graph: ComfyWorkflow = structuredClone(workflow.graph);
+  const lora = params.lora ?? null;
+  if (lora) {
+    // A LoRA was chosen, so it must have somewhere to go: the graph is
+    // never rewired to add a loader.
+    const loader = loraLoader(workflow);
+    if (!loader) {
+      throw new Error(
+        `${workflow.name} has no LoRA loader. Add a LoraLoaderModelOnly node between its model loader and sampler in ComfyUI, export the workflow again and re-import it, or choose no LoRA.`,
+      );
+    }
+    if (loader === "ambiguous") {
+      throw new Error(`${workflow.name} has several LoRA loaders. Map the one to use to "LoRA file" in the workflow inputs.`);
+    }
+    if (!workflow.bindings.some((b) => b.target === "lora")) {
+      graph[loader.nodeId].inputs.lora_name = lora.name;
+      graph[loader.nodeId].inputs.strength_model = lora.strength;
+    }
+  }
   for (const binding of workflow.bindings) {
     const node = graph[binding.nodeId];
     if (!node) continue;
@@ -612,6 +665,12 @@ export function applyWorkflow(
         break;
       case "model":
         value = params.model || current;
+        break;
+      case "lora":
+        value = lora ? lora.name : current;
+        break;
+      case "loraStrength":
+        value = lora ? lora.strength : current;
         break;
       case "initImage":
         value = refs.initImage ?? current;

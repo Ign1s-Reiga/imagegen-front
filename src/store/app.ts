@@ -24,6 +24,7 @@ import {
   boundInput,
   detectBindings,
   BINDINGS_VERSION,
+  loraLoader,
   parseWorkflowJson,
   unsupportedReferenceTitles,
   upgradeReferenceBindings,
@@ -32,6 +33,7 @@ import {
   type SavedWorkflow,
 } from "@/providers/comfy-workflow";
 import { chatService, isImageConnection, provider, service } from "@/providers/registry";
+import { loraChoice, loraFit, trainedLoraMeta } from "@/training/lora";
 import type {
   Capabilities,
   Connection,
@@ -374,6 +376,9 @@ export const useApp = create<AppState>()((set, get) => {
       .filter((i): i is { classType: string; input: string } => Boolean(i.classType));
     const model = boundInput(workflow, "model");
     if (model) wanted.push(model);
+    // The LoRA files ComfyUI lists, so a newly installed one can be seen.
+    const loader = loraLoader(workflow);
+    if (loader && loader !== "ambiguous") wanted.push({ classType: workflow.graph[loader.nodeId].class_type, input: "lora_name" });
     if (!wanted.length) return;
     try {
       const inputs = await def.listInputChoices(await resolveConfig(connection), wanted);
@@ -740,6 +745,7 @@ export const useApp = create<AppState>()((set, get) => {
         references: request.references ?? [],
         options: form.options,
         workflow,
+        lora: loraChoice(form.options),
       };
       if (params.references.length > caps.references) {
         throw new Error(
@@ -752,6 +758,12 @@ export const useApp = create<AppState>()((set, get) => {
       // here for every backend that runs workflows, before anything is uploaded.
       const referenceProblem = workflow ? workflowReferenceProblem(workflow, params.references.length) : null;
       if (referenceProblem) throw new Error(referenceProblem);
+      // A trained LoRA only goes where it fits; the reason is shown, not worked around.
+      const loraMeta = params.lora ? trainedLoraMeta(form.options) : null;
+      if (params.lora && loraMeta) {
+        const fit = loraFit(loraMeta, connection.kind, workflow, params.model);
+        if (!fit.ok) throw new Error(fit.reason);
+      }
 
       const config = await resolveConfig(connection);
       const missing = def.fields.filter((f) => f.required && !config[f.key]?.trim());
@@ -789,6 +801,17 @@ export const useApp = create<AppState>()((set, get) => {
               ...result.info,
               ...(workflow ? { workflow: workflow.name } : {}),
               ...(params.references.length ? { references: params.references.length } : {}),
+              ...(params.lora
+                ? {
+                    lora: {
+                      file: params.lora.name,
+                      strength: params.lora.strength,
+                      ...(loraMeta
+                        ? { artifactId: loraMeta.id, family: loraMeta.family, step: loraMeta.step, trigger: loraMeta.triggerToken }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
           },
           durationMs: Date.now() - startedAt,
