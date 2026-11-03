@@ -12,10 +12,11 @@ A desktop app for generating images with several backends from one place:
 | Replicate | Any image model; inputs are mapped from the model's schema |
 | A1111 / Forge / SD.Next | Stable Diffusion WebUI started with `--api` |
 | Claude | The Claude API, for the prompt helper and the pixel assistant (Claude does not make images) |
+| GPU host (SSH) | A GPU machine you already run, such as a RunPod Pod, for LoRA training |
 
 It does text to image (with reference images attached to the prompt, like a chat message), image to image with a painted or uploaded mask, runs your own ComfyUI workflows, and keeps a local gallery of every result with its prompt and settings. A pixel editor turns the same backends into a sprite tool. With a Claude or OpenRouter connection, a prompt helper rewrites prompts for the model you use, and a pixel assistant draws and edits sprites from a chat.
 
-Built with Tauri 2 (Rust) and Next.js 16 (App Router as a static export, React 19, Tailwind 4). The views are real routes (`/`, `/pixel`, `/gallery`, `/connections`) that Tauri serves from the exported HTML.
+Built with Tauri 2 (Rust) and Next.js 16 (App Router as a static export, React 19, Tailwind 4). The views are real routes (`/`, `/pixel`, `/gallery`, `/training`, `/connections`) that Tauri serves from the exported HTML.
 
 ## Running it
 
@@ -57,6 +58,7 @@ If the tag doesn't match those three versions, the workflow stops before buildin
 - **API keys** go to the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service on Linux) under `io.imagegen.desktop`. They are never written to disk by the app.
 - **Connections and form state**: `settings.json` in the app data folder.
 - **Images**: `images/` plus a `gallery.sqlite3` index in the app data folder (`%APPDATA%\io.imagegen.desktop` on Windows). The gallery's *Open folder* button goes there.
+- **Training**: `training/` in the same folder (projects, photo copies, runs, LoRAs, trusted host keys). SSH keys are in the credential store like API keys.
 
 ## Masks
 
@@ -116,6 +118,10 @@ Claude is called through Anthropic's official TypeScript SDK, with the app's Rus
 
 Each assistant message can take several model calls (one per round of tool use, up to 40), each billed by the provider.
 
+## LoRA training
+
+The Training page trains a personal identity LoRA for Qwen-Image 2.1 from your photographs. It uses the Diffusers DreamBooth LoRA script on a GPU host reached over SSH, and the LoRA is then used in Generate through a ComfyUI workflow with a LoRA loader. Projects, photo copies and registered LoRAs stay on this computer under `training/` in the app data folder; photos leave it only when you start a run or ask for caption suggestions. See [docs/training.md](docs/training.md) for setup, what is stored where, how runs survive disconnects, and a smoke test.
+
 ## ComfyUI workflows
 
 ComfyUI and RunPod connections can run your own workflow instead of the built-in one. In ComfyUI, use *Workflow > Export (API)*, then import the JSON with the file button next to *Workflow*. The app finds the prompt, negative prompt, seed, steps, guidance, sampler, scheduler, size, batch size, model, input image and mask on its own, and the editor lets you change that or expose any other input (a LoRA strength, a filename prefix) as a panel field. Fields get dropdowns from the server's `/object_info` when it has a list. Inputs you leave alone run exactly as exported.
@@ -137,8 +143,8 @@ The webview runs under a Content Security Policy (`src-tauri/tauri.conf.json`): 
 
 ```
 src/
-  app/                  Next.js routes: / (generate), /pixel, /gallery, /connections
-  components/           UI: generate/, pixel/, gallery/, connections/, shared ui.tsx
+  app/                  Next.js routes: / (generate), /pixel, /gallery, /training, /connections
+  components/           UI: generate/, pixel/, gallery/, training/, connections/, shared ui.tsx
   assistant/            Prompt helper and the assistant's connection settings
   pixel/                Sprite model, drawing, palettes, snapping AI output to the grid, AI tools
     agent.ts            Pixel assistant: chat loop, image tools, undo grouping
@@ -151,12 +157,15 @@ src/
     registry.ts         The list of backends and services
     comfy-workflow.ts   Built-in graph, workflow import, input detection (ComfyUI + RunPod)
     schema-input.ts     Schema-driven input mapping (fal.ai + Replicate)
+  training/             LoRA training: trainer adapter and preset, captions, run states, LoRA fit, Rust calls
   lib/                  HTTP (through Rust, no CORS), gallery, masks, secrets, settings
   store/app.ts          App state and the generate flow (zustand)
 src-tauri/
   src/gallery.rs        Image files + SQLite index
   src/secrets.rs        OS keychain access
   src/files.rs          Save dialog + file write for sprite exports
+  src/training/         Training projects (SQLite), photo import, SSH/SFTP transport, runner protocol
+  runner/               The Python runner and validation script installed on GPU hosts, with tests
   capabilities/         Webview permissions (HTTP scope, opener, ...)
 ```
 
