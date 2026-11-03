@@ -1,21 +1,48 @@
+/** The message a JSON error body names in one of the fields APIs use, if any. */
+function knownMessage(json: unknown): string | undefined {
+  const j = json as { error?: unknown; detail?: unknown; message?: unknown } | null;
+  const error = j?.error as { message?: unknown } | undefined;
+  const detail = j?.detail as { msg?: unknown }[] | string | undefined;
+  const found =
+    error?.message ??
+    (Array.isArray(detail) ? detail[0]?.msg : undefined) ??
+    (typeof detail === "string" ? detail : undefined) ??
+    j?.message ??
+    (typeof j?.error === "string" ? j.error : undefined);
+  return typeof found === "string" && found ? found : undefined;
+}
+
+/**
+ * The provider's own message from an OpenRouter error, when OpenRouter's is
+ * shortened (it ends with "…") and the provider's body in `metadata.raw` has
+ * it whole: in a message field, or as text that starts the same way. Raw
+ * bodies with neither (an HTML page, JSON with no message) are not used.
+ */
+function providerMessage(json: unknown): string | undefined {
+  const error = (json as { error?: { message?: unknown; metadata?: { raw?: unknown } } } | null)?.error;
+  const message = error?.message;
+  const raw = error?.metadata?.raw;
+  if (typeof message !== "string" || !message.endsWith("…") || raw == null) return undefined;
+  let text = typeof raw === "string" ? raw.trim() : "";
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const found = knownMessage(parsed);
+    if (found) return found;
+    text = "";
+  } catch {
+    // Plain text; used only if it is the message OpenRouter shortened.
+  }
+  const shortened = message.slice(0, -1).trim();
+  return shortened && text.startsWith(shortened) ? text : undefined;
+}
+
 /** The readable message in an error body: a JSON API's message, or the raw text. */
 function bodyMessage(body: string): string {
   let detail = body.trim();
   try {
     const json = JSON.parse(body);
-    // OpenRouter shortens the provider's error in `message` (ending it with
-    // "…") and passes the provider's own body whole in `metadata.raw`.
-    const raw = json?.error?.metadata?.raw;
-    const upstream = typeof raw === "string" ? bodyMessage(raw) : raw ? bodyMessage(JSON.stringify(raw)) : "";
-    detail =
-      upstream ||
-      (json?.error?.message ??
-        json?.detail?.[0]?.msg ??
-        (typeof json?.detail === "string" ? json.detail : undefined) ??
-        json?.message ??
-        json?.error ??
-        detail);
-    if (typeof detail !== "string") detail = JSON.stringify(detail);
+    const found = providerMessage(json) ?? knownMessage(json);
+    detail = found ?? (json?.error && typeof json.error === "object" ? JSON.stringify(json.error) : detail);
     // e.g. RunPod answers 401 with {"error":{}}
     if (detail === "{}" || detail === "[]") detail = "";
   } catch {
