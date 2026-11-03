@@ -7,7 +7,7 @@ import { maskFromAlpha, maskToAlpha } from "@/lib/mask";
 import { useImageUrl } from "@/lib/use-image-url";
 import type { InputImage } from "@/providers/types";
 
-import { Button, IconButton, Segmented, useModal, useRestoreFocus } from "../ui";
+import { Button, Dialog, IconButton, Segmented } from "../ui";
 
 /** Paint colour; the canvas is shown translucent over the image. */
 const PAINT: [number, number, number] = [240, 165, 60];
@@ -28,7 +28,6 @@ export function MaskEditor({
   onSave: (mask: InputImage | null) => void;
   onClose: () => void;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const undoStack = useRef<ImageData[]>([]);
@@ -81,10 +80,6 @@ export function MaskEditor({
       cancelled = true;
     };
   }, [mask, mounted, image.width, image.height]);
-
-  useModal();
-  useRestoreFocus();
-  useEffect(() => dialogRef.current?.focus(), []);
 
   const snapshot = () => {
     const c = ctx();
@@ -179,14 +174,12 @@ export function MaskEditor({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Capture phase: keep Ctrl+Enter from starting a generation behind the editor.
+      // Capture phase: keep Ctrl+Enter from starting a generation behind the
+      // editor. Escape is the dialog's.
       if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
         void save();
-      } else if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         undo();
@@ -197,17 +190,10 @@ export function MaskEditor({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [save, onClose, undo]);
+  }, [save, undo]);
 
   return (
-    <div
-      ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Paint the area to change"
-      tabIndex={-1}
-      className="fixed inset-0 z-40 flex flex-col bg-surround outline-none"
-    >
+    <Dialog label="Paint the area to change" onClose={onClose} initialFocus="panel" fill className="flex flex-col bg-surround">
       <div className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-panel px-4">
         <p className="text-[14px] text-fg">Paint over the area to change</p>
         <div className="w-44">
@@ -290,6 +276,6 @@ export function MaskEditor({
           </div>
         )}
       </div>
-    </div>
+    </Dialog>
   );
 }
