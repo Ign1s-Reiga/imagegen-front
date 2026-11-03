@@ -276,6 +276,19 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue((self.ws / "jobs" / keep).exists())
         self.assertFalse(self.call("cleanup", "../../etc")["ok"])
 
+    def test_secrets_reach_a_detached_process_on_stdin_only(self):
+        out = self.ws / "received"
+        script = f"import sys; open({str(out)!r}, 'w').write(sys.stdin.read())"
+        before = set(self.ws.rglob("*"))
+        runner.spawn_detached([sys.executable, "-c", script], self.ws / "child.log", stdin=b'{"hfToken": "hf_secret"}')
+        deadline = time.time() + 10
+        while time.time() < deadline and not (out.exists() and out.read_text()):
+            time.sleep(0.1)
+        self.assertEqual(json.loads(out.read_text()), {"hfToken": "hf_secret"})
+        # Nothing but the child's own output and log was written.
+        written = set(self.ws.rglob("*")) - before
+        self.assertEqual({p.name for p in written}, {"received", "child.log"})
+
 
 if __name__ == "__main__":
     unittest.main()

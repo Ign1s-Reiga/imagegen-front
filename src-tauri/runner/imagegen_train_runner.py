@@ -527,16 +527,22 @@ def update_status(job: Path, **fields) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def spawn_detached(args: list[str], log: Path) -> int:
+def spawn_detached(args: list[str], log: Path, stdin: bytes | None = None) -> int:
+    """Starts a process in its own session. `stdin`, when given, is the
+    only thing it reads on stdin: a way to hand it a secret without a file
+    or a command line."""
     with log.open("ab") as out, open(os.devnull, "rb") as devnull:
         proc = subprocess.Popen(
             args,
-            stdin=devnull,
+            stdin=subprocess.PIPE if stdin is not None else devnull,
             stdout=out,
             stderr=subprocess.STDOUT,
             start_new_session=True,
             close_fds=True,
         )
+    if stdin is not None:
+        proc.stdin.write(stdin)
+        proc.stdin.close()
     return proc.pid
 
 
@@ -991,8 +997,7 @@ def main(argv: list[str]) -> int:
             supervise(ws, rest[0], int(rest[1]) if len(rest) > 1 else None)
             return 0
         if command == "_setup":
-            run_setup(ws, read_json(env_dir(ws) / "setup-request.json", {}) or {})
-            (env_dir(ws) / "setup-request.json").unlink(missing_ok=True)
+            run_setup(ws, read_stdin())
             return 0
         request = read_stdin()
         if command == "version":
@@ -1007,13 +1012,10 @@ def main(argv: list[str]) -> int:
             model = request.get("model")
             if model is not None and (not REPO_ID.match(str(model.get("repo", ""))) or not REVISION.match(str(model.get("revision", "main")))):
                 raise RequestError("bad model")
-            # The token goes to the setup process in a private file it
-            # deletes on start, never on a command line.
-            request_path = env_dir(ws) / "setup-request.json"
-            fd = os.open(request_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
-                json.dump({"model": model, "hfToken": request.get("hfToken")}, f)
-            pid = spawn_detached([sys.executable, str(Path(__file__).resolve()), "_setup"], env_dir(ws) / "setup.log")
+            # The token reaches the setup process on its stdin only: never a
+            # file on the host's disk, never a command line.
+            handoff = json.dumps({"model": model, "hfToken": request.get("hfToken")}).encode()
+            pid = spawn_detached([sys.executable, str(Path(__file__).resolve()), "_setup"], env_dir(ws) / "setup.log", stdin=handoff)
             write_json(setup_status_path(ws), {"state": "running", "step": "starting", "startedAt": now(), "pid": pid})
             result = {"setup": read_json(setup_status_path(ws))}
         elif command == "setup-status":
