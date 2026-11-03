@@ -35,15 +35,21 @@ export const Button = forwardRef<
 
 let openModals = 0;
 
-/** Whether a modal is open: page-wide shortcuts do nothing under one. */
-export const isModalOpen = () => openModals > 0;
+/**
+ * Whether a modal is open: page-wide shortcuts do nothing under one. The
+ * count from `useModal` is checked first; the page is also searched for an
+ * `aria-modal` element, so a modal that does not count itself is still
+ * seen, as is one mounted when a hot reload reset the count.
+ */
+export const isModalOpen = () => openModals > 0 || document.querySelector('[aria-modal="true"]') !== null;
 
 /** Counts the component as an open modal for `isModalOpen` while it is mounted. */
 export function useModal() {
   useEffect(() => {
     openModals++;
     return () => {
-      openModals--;
+      // Never below zero, should a hot reload have reset the count meanwhile.
+      openModals = Math.max(0, openModals - 1);
     };
   }, []);
 }
