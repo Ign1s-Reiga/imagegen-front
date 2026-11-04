@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   boundInput,
+  loraLoader,
   fieldKey,
   workflowReferenceProblem,
   workflowReferenceSlots,
@@ -29,6 +30,7 @@ import { Button, Field, IconButton, NumberInput, Segmented, Select, TextArea, Te
 import { ImageDrop } from "./ImageDrop";
 import { MaskEditor } from "./MaskEditor";
 import { PromptBox } from "./PromptBox";
+import { LoraSection } from "./LoraSection";
 import { WorkflowEditor } from "./WorkflowEditor";
 
 const ASPECTS: [number, number][] = [
@@ -617,6 +619,17 @@ export function ParamsPanel() {
               onChange={(value) => setOption(fieldKey(binding), value)}
             />
           ))}
+
+        <LoraSection
+          connection={connection}
+          workflow={workflow}
+          form={form}
+          setForm={setForm}
+          listed={(() => {
+            const loader = workflow ? loraLoader(workflow) : null;
+            return loader && loader !== "ambiguous" ? inputChoices(workflow?.graph[loader.nodeId]?.class_type, "lora_name") : undefined;
+          })()}
+        />
 
         {def.options
           .filter((o) => !o.mode || o.mode === mode)

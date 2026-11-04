@@ -68,3 +68,16 @@ jobs:
       - if: runner.os == 'Linux'
         run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  runner:
+    name: Training runner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Includes the end-to-end tests, which drive the real supervisor with a
+      # fake trainer (they need process groups and flock, so Linux).
+      - run: python -m unittest discover -s src-tauri/runner -v

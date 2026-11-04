@@ -9,8 +9,9 @@ import { describeCredit } from "@/providers/credit";
 import { SERVICE_ORDER, isImageKind, service } from "@/providers/registry";
 import type { Connection, ConnectionConfig, ConnectionKind, CreditInfo } from "@/providers/types";
 import { assistantFor, useApp } from "@/store/app";
+import { hostKeyProblem } from "@/training/api";
 
-import { Button, Field, TextInput, cx, useFieldId } from "../ui";
+import { Button, Field, TextArea, TextInput, cx, useFieldId } from "../ui";
 
 type TestState = { status: "idle" } | { status: "running" } | { status: "ok" | "error"; message: string };
 
@@ -69,7 +70,7 @@ function ProviderPicker({ onPick, onCancel, canCancel }: { onPick: (kind: Connec
       <h2 className="text-[17px] font-semibold">Add a connection</h2>
       <p className="mt-1 text-fg-dim">
         Choose where images are generated. You can add several and switch between them. Claude and OpenRouter also run the
-        prompt helper and the pixel assistant.
+        prompt helper and the pixel assistant. A GPU host is for LoRA training.
       </p>
       <ul className="mt-5 divide-y divide-line border-y border-line">
         {SERVICE_ORDER.map((kind) => {
@@ -108,6 +109,7 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
   const [stored, setStored] = useState<Record<string, string>>({});
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [test, setTest] = useState<TestState>({ status: "idle" });
+  const [hostKey, setHostKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [credit, setCredit] = useState<CreditCheck>({ status: "idle" });
@@ -164,10 +166,27 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
 
   const runTest = async () => {
     setTest({ status: "running" });
+    setHostKey(null);
     try {
       const message = await def.testConnection(effectiveConfig(), AbortSignal.timeout(20000));
       setTest({ status: "ok", message });
       void checkCredit();
+    } catch (err) {
+      setTest({ status: "error", message: describeError(err) });
+      // An SSH host seen for the first time: offer to trust its key once the
+      // user has compared the fingerprint. A changed key is never offered.
+      const problem = hostKeyProblem(err instanceof Error && err.cause ? err.cause : err);
+      if (problem?.kind === "unknown" && def.trustHostKey) setHostKey(problem.fingerprint);
+    }
+  };
+
+  const trustKey = async () => {
+    if (!hostKey || !def.trustHostKey) return;
+    setTest({ status: "running" });
+    try {
+      await def.trustHostKey(effectiveConfig(), hostKey);
+      setHostKey(null);
+      await runTest();
     } catch (err) {
       setTest({ status: "error", message: describeError(err) });
     }
@@ -204,7 +223,17 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
       <p className="mt-1 text-fg-dim">{def.summary}</p>
 
       <div className="mt-6 space-y-4">
-        <Field label="Name" htmlFor={nameId} help={isImageKind(def.kind) ? "Shown in the backend menu." : "Shown in the assistant's model menu."}>
+        <Field
+          label="Name"
+          htmlFor={nameId}
+          help={
+            isImageKind(def.kind)
+              ? "Shown in the backend menu."
+              : def.kind === "gpuhost"
+                ? "Shown in the Training page's host menu."
+                : "Shown in the assistant's model menu."
+          }
+        >
           <TextInput id={nameId} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
 
@@ -230,15 +259,28 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
                   )
                 }
               >
-                <TextInput
-                  id={id}
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={secrets[field.key] ?? ""}
-                  placeholder={hasStored ? "Saved. Type to replace it" : field.placeholder}
-                  onChange={(e) => setSecrets({ ...secrets, [field.key]: e.target.value })}
-                />
+                {field.multiline ? (
+                  <TextArea
+                    id={id}
+                    rows={4}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono text-[12px] [-webkit-text-security:disc]"
+                    value={secrets[field.key] ?? ""}
+                    placeholder={hasStored ? "Saved. Paste to replace it" : field.placeholder}
+                    onChange={(e) => setSecrets({ ...secrets, [field.key]: e.target.value })}
+                  />
+                ) : (
+                  <TextInput
+                    id={id}
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={secrets[field.key] ?? ""}
+                    placeholder={hasStored ? "Saved. Type to replace it" : field.placeholder}
+                    onChange={(e) => setSecrets({ ...secrets, [field.key]: e.target.value })}
+                  />
+                )}
               </Field>
             );
           }
@@ -274,6 +316,18 @@ function ConnectionEditor({ initial, isNew, onDone }: { initial: Connection; isN
         >
           {test.status === "running" ? "Testing connection" : test.message}
         </p>
+      )}
+
+      {hostKey && (
+        <div className="mt-3 rounded-[4px] border border-line px-3 py-2 text-[13px] leading-snug">
+          <p className="text-fg-dim">
+            Before trusting this host, check that its key fingerprint is <code className="break-all text-fg">{hostKey}</code>. On the
+            host, <code className="text-fg">ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> prints it.
+          </p>
+          <Button size="sm" className="mt-2" onClick={() => void trustKey()}>
+            Trust this host key
+          </Button>
+        </div>
       )}
 
       <div className="mt-6 flex items-center gap-2">

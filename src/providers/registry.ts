@@ -3,6 +3,7 @@ import { anthropic } from "./anthropic";
 import type { ChatService } from "./chat";
 import { comfyui } from "./comfyui";
 import { fal } from "./fal";
+import { gpuhost } from "./gpuhost";
 import { openai } from "./openai";
 import { openrouter } from "./openrouter";
 import { replicate } from "./replicate";
@@ -28,7 +29,7 @@ export const PROVIDERS: Record<ProviderKind, ProviderDefinition> = {
 };
 
 /** Every connection kind, image backends first; the order of the "Add a connection" list. */
-export const SERVICES: Record<ConnectionKind, ServiceDefinition> = { ...PROVIDERS, anthropic };
+export const SERVICES: Record<ConnectionKind, ServiceDefinition> = { ...PROVIDERS, anthropic, gpuhost };
 
 export const SERVICE_ORDER: ConnectionKind[] = [
   "openai",
@@ -39,6 +40,7 @@ export const SERVICE_ORDER: ConnectionKind[] = [
   "replicate",
   "a1111",
   "anthropic",
+  "gpuhost",
 ];
 
 export function provider(kind: ProviderKind): ProviderDefinition {
